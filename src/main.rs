@@ -495,32 +495,32 @@ impl Pipeline {
                 binding: 0,
                 location: 0,
                 offset: 0,
-                format: vk::Format::R32G32B32A32_SFLOAT,
+                format: vk::Format::R32G32B32_SFLOAT,
             },
             vk::VertexInputAttributeDescription {
                 binding: 1,
                 location: 1,
                 offset: 0,
-                format: vk::Format::R32_SFLOAT,
+                format: vk::Format::R32G32B32_SFLOAT,
             },
             vk::VertexInputAttributeDescription {
                 binding: 1,
                 location: 2,
-                offset: 4,
-                format: vk::Format::R32G32B32A32_SFLOAT,
+                offset: 12,
+                format: vk::Format::R32G32B32_SFLOAT,
             },
         ];
 
         let vertex_binding_descs = [
             vk::VertexInputBindingDescription {
                 binding: 0,
-                stride: 16,
+                stride: 12,
                 input_rate: vk::VertexInputRate::VERTEX,
             },
             vk::VertexInputBindingDescription {
                 binding: 1,
-                stride: 20,
-                input_rate: vk::VertexInputRate::VERTEX,
+                stride: 24,
+                input_rate: vk::VertexInputRate::INSTANCE,
             },
         ];
 
@@ -688,49 +688,54 @@ fn create_command_buffers(
         .command_buffer_count(amount as u32);
     unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }
 }
-fn fill_commandbuffers(
-    commandbuffers: &[vk::CommandBuffer],
+fn fill_command_buffers(
+    command_buffers: &[vk::CommandBuffer],
     logical_device: &ash::Device,
     renderpass: &vk::RenderPass,
     swapchain: &SwapchainComp,
     pipeline: &Pipeline,
     vb: &vk::Buffer,
     vb2: &vk::Buffer,
+    models: &Vec<Model<[f32; 3], InstanceData>>,
 ) -> Result<(), vk::Result> {
-    for (i, &commandbuffer) in commandbuffers.iter().enumerate() {
-        let commandbuffer_begininfo = vk::CommandBufferBeginInfo::builder();
+    for (i, &command_buffer) in command_buffers.iter().enumerate() {
+        let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder();
         unsafe {
-            logical_device.begin_command_buffer(commandbuffer, &commandbuffer_begininfo)?;
+            logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info)?;
         }
-        let clearvalues = [vk::ClearValue {
+        let clear_values = [vk::ClearValue {
             color: vk::ClearColorValue {
                 float32: [0.0, 0.0, 0.08, 1.0],
             },
         }];
-        let renderpass_begininfo = vk::RenderPassBeginInfo::builder()
+        let renderpass_begin_info = vk::RenderPassBeginInfo::builder()
             .render_pass(*renderpass)
             .framebuffer(swapchain.framebuffers[i])
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent: swapchain.extent,
             })
-            .clear_values(&clearvalues);
+            .clear_values(&clear_values);
         unsafe {
             logical_device.cmd_begin_render_pass(
-                commandbuffer,
-                &renderpass_begininfo,
+                command_buffer,
+                &renderpass_begin_info,
                 vk::SubpassContents::INLINE,
             );
             logical_device.cmd_bind_pipeline(
-                commandbuffer,
+                command_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
                 pipeline.pipeline,
             );
-            logical_device.cmd_bind_vertex_buffers(commandbuffer, 0, &[*vb], &[0]);
-            logical_device.cmd_bind_vertex_buffers(commandbuffer, 1, &[*vb2], &[0]);
-            logical_device.cmd_draw(commandbuffer, 6, 1, 0, 0);
-            logical_device.cmd_end_render_pass(commandbuffer);
-            logical_device.end_command_buffer(commandbuffer)?;
+
+            //logical_device.cmd_bind_vertex_buffers(command_buffer, 0, &[*vb], &[0]);
+            //logical_device.cmd_bind_vertex_buffers(command_buffer, 1, &[*vb2], &[0]);
+            //logical_device.cmd_draw(command_buffer, 6, 1, 0, 0);
+            for m in models {
+                m.draw(command_buffer);
+            }
+            logical_device.cmd_end_render_pass(command_buffer);
+            logical_device.end_command_buffer(command_buffer)?;
         }
     }
     Ok(())
@@ -834,6 +839,7 @@ struct Kompura {
     command_buffers: Vec<CommandBuffer>,
     allocator: std::mem::ManuallyDrop<Allocator>,
     buffers: Vec<GpuBuffer>,
+    models: Vec<Model<[f32; 3], InstanceData>>,
 }
 
 impl Kompura {
@@ -922,7 +928,24 @@ impl Kompura {
         let command_buffers =
             create_command_buffers(&logical_device, &pools, swapchain.framebuffers.len())?;
 
-        fill_commandbuffers(
+        let mut cube = Model::cube(&logical_device);
+        cube.insert_visibly(InstanceData {
+            position: [0.0, 0.0, 0.0],
+            colour: [1.0, 0.0, 0.0],
+        });
+        cube.insert_visibly(InstanceData {
+            position: [0.0, 0.25, 0.0],
+            colour: [0.6, 0.5, 0.0],
+        });
+        cube.insert_visibly(InstanceData {
+            position: [0.0, 0.5, 0.0],
+            colour: [0.0, 0.5, 0.0],
+        });
+        cube.update_vertex_buffer(&mut allocator);
+        cube.update_instance_buffer(&mut allocator);
+        let models = vec![cube];
+
+        fill_command_buffers(
             &command_buffers,
             &logical_device,
             &renderpass,
@@ -930,6 +953,7 @@ impl Kompura {
             &pipeline,
             &gpu_buffer1.buffer,
             &gpu_buffer2.buffer,
+            &models,
         )?;
 
         Ok(Kompura {
@@ -950,6 +974,7 @@ impl Kompura {
             command_buffers,
             allocator: std::mem::ManuallyDrop::new(allocator),
             buffers: vec![gpu_buffer1, gpu_buffer2],
+            models,
         })
     }
 }
@@ -966,6 +991,20 @@ impl Drop for Kompura {
                     .free(std::mem::take(&mut b.allocation))
                     .expect("problem with buffer destruction");
                 self.device.destroy_buffer(b.buffer, None);
+            }
+            for m in &mut self.models {
+                if let Some(vb) = &mut m.vertex_buffer {
+                    self.allocator
+                        .free(std::mem::take(&mut vb.allocation))
+                        .expect("problem with buffer destruction");
+                    self.device.destroy_buffer(vb.buffer, None);
+                }
+                if let Some(ib) = &mut m.instance_buffer {
+                    self.allocator
+                        .free(std::mem::take(&mut ib.allocation))
+                        .expect("problem with buffer destruction");
+                    self.device.destroy_buffer(ib.buffer, None);
+                }
             }
 
             std::mem::ManuallyDrop::drop(&mut self.allocator);
@@ -1113,7 +1152,7 @@ impl<V, I> Model<V, I> {
         }
     }
 
-    fn update_vertexbuffer(&mut self, allocator: &mut Allocator) -> Result<(), vk::Result> {
+    fn update_vertex_buffer(&mut self, allocator: &mut Allocator) -> Result<(), vk::Result> {
         if let Some(buffer) = &mut self.vertex_buffer {
             buffer.write_to_memory(allocator, &self.vertex_data)?;
             Ok(())
@@ -1132,6 +1171,95 @@ impl<V, I> Model<V, I> {
             buffer.write_to_memory(allocator, &self.vertex_data)?;
             self.vertex_buffer = Some(buffer);
             Ok(())
+        }
+    }
+
+    fn update_instance_buffer(&mut self, allocator: &mut Allocator) -> Result<(), vk::Result> {
+        if let Some(buffer) = &mut self.instance_buffer {
+            buffer.write_to_memory(allocator, &self.instances[0..self.first_invisible])?;
+            Ok(())
+        } else {
+            let bytes = (self.first_invisible * std::mem::size_of::<I>()) as u64;
+            let mut buffer = GpuBuffer::new(
+                allocator,
+                bytes,
+                vk::BufferUsageFlags::VERTEX_BUFFER,
+                self.logical_device.clone(),
+                "VertexBuffer".to_string(),
+                gpu_allocator::MemoryLocation::CpuToGpu,
+                true,
+                AllocationScheme::GpuAllocatorManaged,
+            )?;
+            buffer.write_to_memory(allocator, &self.instances[0..self.first_invisible])?;
+            self.instance_buffer = Some(buffer);
+            Ok(())
+        }
+    }
+
+    fn draw(&self, command_buffer: vk::CommandBuffer) {
+        if let Some(vertex_buffer) = &self.vertex_buffer {
+            if let Some(instance_buffer) = &self.instance_buffer {
+                if self.first_invisible > 0 {
+                    unsafe {
+                        self.logical_device.cmd_bind_vertex_buffers(
+                            command_buffer,
+                            0,
+                            &[vertex_buffer.buffer],
+                            &[0],
+                        );
+                        self.logical_device.cmd_bind_vertex_buffers(
+                            command_buffer,
+                            1,
+                            &[instance_buffer.buffer],
+                            &[0],
+                        );
+                        self.logical_device.cmd_draw(
+                            command_buffer,
+                            self.vertex_data.len() as u32,
+                            self.first_invisible as u32,
+                            0,
+                            0,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[repr(C)]
+struct InstanceData {
+    position: [f32; 3],
+    colour: [f32; 3],
+}
+
+impl Model<[f32; 3], InstanceData> {
+    fn cube(logical_device: &ash::Device) -> Model<[f32; 3], InstanceData> {
+        let lbf = [-0.1, 0.1, 0.0]; //lbf: left-bottom-front
+        let lbb = [-0.1, 0.1, 0.1];
+        let ltf = [-0.1, -0.1, 0.0];
+        let ltb = [-0.1, -0.1, 0.1];
+        let rbf = [0.1, 0.1, 0.0];
+        let rbb = [0.1, 0.1, 0.1];
+        let rtf = [0.1, -0.1, 0.0];
+        let rtb = [0.1, -0.1, 0.1];
+        Model {
+            vertex_data: vec![
+                lbf, lbb, rbb, lbf, rbb, rbf, //bottom
+                ltf, rtb, ltb, ltf, rtf, rtb, //top
+                lbf, rtf, ltf, lbf, rbf, rtf, //front
+                lbb, ltb, rtb, lbb, rtb, rbb, //back
+                lbf, ltf, lbb, lbb, ltf, ltb, //left
+                rbf, rbb, rtf, rbb, rtb, rtf, //right
+            ],
+            handle_to_index: std::collections::HashMap::new(),
+            handles: Vec::new(),
+            instances: Vec::new(),
+            first_invisible: 0,
+            next_handle: 0,
+            vertex_buffer: None,
+            instance_buffer: None,
+            logical_device: logical_device.clone(),
         }
     }
 }
