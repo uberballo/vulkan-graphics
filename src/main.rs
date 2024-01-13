@@ -279,10 +279,13 @@ fn init_device_and_queues(
     ];
     let device_extension_name_pointers: Vec<*const i8> =
         vec![ash::extensions::khr::Swapchain::name().as_ptr()];
+
+    let features = vk::PhysicalDeviceFeatures::builder().fill_mode_non_solid(true);
     let device_create_info = vk::DeviceCreateInfo::builder()
         .queue_create_infos(&queue_infos)
         .enabled_extension_names(&device_extension_name_pointers)
-        .enabled_layer_names(&layer_name_pointers);
+        .enabled_layer_names(&layer_name_pointers)
+        .enabled_features(&features);
     let logical_device =
         unsafe { instance.create_device(physical_device, &device_create_info, None)? };
     let graphics_queue =
@@ -525,7 +528,7 @@ impl Pipeline {
             .vertex_attribute_descriptions(&vertex_attrib_descs)
             .vertex_binding_descriptions(&vertex_binding_descs);
         let input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
-            .topology(vk::PrimitiveTopology::POINT_LIST);
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
         let viewports = [vk::Viewport {
             x: 0.,
             y: 0.,
@@ -725,7 +728,7 @@ fn fill_commandbuffers(
             );
             logical_device.cmd_bind_vertex_buffers(commandbuffer, 0, &[*vb], &[0]);
             logical_device.cmd_bind_vertex_buffers(commandbuffer, 1, &[*vb2], &[0]);
-            logical_device.cmd_draw(commandbuffer, 1, 1, 0, 0);
+            logical_device.cmd_draw(commandbuffer, 6, 1, 0, 0);
             logical_device.cmd_end_render_pass(commandbuffer);
             logical_device.end_command_buffer(commandbuffer)?;
         }
@@ -733,10 +736,47 @@ fn fill_commandbuffers(
     Ok(())
 }
 
-fn write_to_memory(allocation: &Allocation, data: &[f32]) {
-    let data_ptr = allocation.mapped_ptr().unwrap().as_ptr() as *mut f32;
-    unsafe { data_ptr.copy_from_nonoverlapping(data.as_ptr(), data.len()) };
-    println!("Pituus: {:?}", data.len());
+struct GpuBuffer {
+    buffer: vk::Buffer,
+    allocation: Allocation,
+}
+
+impl GpuBuffer {
+    fn new(
+        allocator: &mut Allocator,
+        size_in_bytes: u64,
+        buffer_usage: vk::BufferUsageFlags,
+        logical_device: &ash::Device,
+        allocation_name: &str,
+        allocation_location: gpu_allocator::MemoryLocation,
+        linear: bool,
+        allocation_scheme: AllocationScheme,
+    ) -> Result<GpuBuffer, ash::vk::Result> {
+        let buffer_create_info = vk::BufferCreateInfo::builder()
+            .size(size_in_bytes)
+            .usage(buffer_usage);
+        let buffer = unsafe { logical_device.create_buffer(&buffer_create_info, None)? };
+        let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
+        let allocation_info = AllocationCreateDesc {
+            name: allocation_name,
+            requirements,
+            location: allocation_location,
+            linear,
+            allocation_scheme,
+        };
+
+        let allocation = allocator.allocate(&allocation_info).unwrap();
+        unsafe {
+            logical_device.bind_buffer_memory(buffer, allocation.memory(), allocation.offset())?
+        }
+        Ok(GpuBuffer { buffer, allocation })
+    }
+
+    fn write_to_memory(&self, data: &[f32]) {
+        let data_ptr = self.allocation.mapped_ptr().unwrap().as_ptr() as *mut f32;
+        unsafe { data_ptr.copy_from_nonoverlapping(data.as_ptr(), data.len()) };
+        println!("Pituus: {:?}", data.len());
+    }
 }
 
 struct Kompura {
@@ -756,10 +796,7 @@ struct Kompura {
     pools: Pools,
     command_buffers: Vec<CommandBuffer>,
     allocator: std::mem::ManuallyDrop<Allocator>,
-    buffer1: vk::Buffer,
-    allocation1: Allocation,
-    buffer2: vk::Buffer,
-    allocation2: Allocation,
+    buffers: Vec<GpuBuffer>,
 }
 
 impl Kompura {
@@ -807,54 +844,43 @@ impl Kompura {
 
         let mut allocator = Allocator::new(&allocator_create_info)?;
 
-        let vk_info = vk::BufferCreateInfo::builder()
-            .size(16)
-            .usage(vk::BufferUsageFlags::VERTEX_BUFFER);
+        let gpu_buffer1 = GpuBuffer::new(
+            &mut allocator,
+            96,
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            &logical_device,
+            "buffer1",
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            true,
+            AllocationScheme::GpuAllocatorManaged,
+        )?;
 
-        let buffer1 = unsafe { logical_device.create_buffer(&vk_info, None) }?;
-        let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer1) };
-        let allocation_info = AllocationCreateDesc {
-            name: "Example allocation",
-            requirements,
-            location: gpu_allocator::MemoryLocation::CpuToGpu,
-            linear: true,
-            allocation_scheme: AllocationScheme::GpuAllocatorManaged,
-        };
-        let allocation1 = allocator.allocate(&allocation_info)?;
-        unsafe {
-            logical_device
-                .bind_buffer_memory(buffer1, allocation1.memory(), allocation1.offset())
-                .unwrap()
-        };
+        let data = [
+            0.5f32, 0.0f32, 0.0f32, 1.0f32, 0.0f32, 0.2f32, 0.0f32, 1.0f32, -0.5f32, 0.0f32,
+            0.0f32, 1.0f32, -0.9f32, -0.9f32, 0.0f32, 1.0f32, 0.3f32, -0.8f32, 0.0f32, 1.0f32,
+            0.0f32, -0.6f32, 0.0f32, 1.0f32,
+        ];
 
-        let data = [0.1f32, -0.3f32, 0.0f32, 1.0f32];
-        write_to_memory(&allocation1, &data);
+        gpu_buffer1.write_to_memory(&data);
 
-        let vk_info2 = vk::BufferCreateInfo::builder()
-            .size(20)
-            .usage(vk::BufferUsageFlags::VERTEX_BUFFER);
-        let buffer2 = unsafe { logical_device.create_buffer(&vk_info2, None) }?;
-        dbg!(buffer1);
-        dbg!(buffer2);
+        let gpu_buffer2 = GpuBuffer::new(
+            &mut allocator,
+            120,
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            &logical_device,
+            "buffer2",
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            true,
+            AllocationScheme::GpuAllocatorManaged,
+        )?;
 
-        let requirements2 = unsafe { logical_device.get_buffer_memory_requirements(buffer2) };
-        let allocation_info2 = AllocationCreateDesc {
-            name: "Example allocation2",
-            requirements: requirements2,
-            location: gpu_allocator::MemoryLocation::CpuToGpu,
-            linear: true,
-            allocation_scheme: AllocationScheme::GpuAllocatorManaged,
-        };
-        let allocation2 = allocator.allocate(&allocation_info2)?;
-        unsafe {
-            logical_device
-                .bind_buffer_memory(buffer2, allocation2.memory(), allocation2.offset())
-                .unwrap()
-        };
+        let data2 = [
+            15.0f32, 0.0f32, 1.0f32, 0.0f32, 1.0f32, 15.0f32, 0.0f32, 1.0f32, 0.0f32, 1.0f32,
+            15.0f32, 0.0f32, 1.0f32, 0.0f32, 1.0f32, 1.0f32, 0.8f32, 0.7f32, 0.0f32, 1.0f32,
+            1.0f32, 0.8f32, 0.7f32, 0.0f32, 1.0f32, 1.0f32, 0.0f32, 0.0f32, 1.0f32, 1.0f32,
+        ];
 
-        let data2 = [5.0f32, 1.0f32, 1.0f32, 0.0f32, 1.0f32];
-
-        write_to_memory(&allocation2, &data2);
+        gpu_buffer2.write_to_memory(&data2);
 
         let command_buffers =
             create_command_buffers(&logical_device, &pools, swapchain.framebuffers.len())?;
@@ -865,8 +891,8 @@ impl Kompura {
             &renderpass,
             &swapchain,
             &pipeline,
-            &buffer1,
-            &buffer2,
+            &gpu_buffer1.buffer,
+            &gpu_buffer2.buffer,
         )?;
 
         Ok(Kompura {
@@ -886,10 +912,7 @@ impl Kompura {
             pools,
             command_buffers,
             allocator: std::mem::ManuallyDrop::new(allocator),
-            buffer1,
-            allocation1,
-            buffer2,
-            allocation2,
+            buffers: vec![gpu_buffer1, gpu_buffer2],
         })
     }
 }
@@ -900,15 +923,15 @@ impl Drop for Kompura {
             self.device
                 .device_wait_idle()
                 .expect("something wrong while waiting");
-            self.allocator
-                .free(std::mem::take(&mut self.allocation1))
-                .unwrap();
-            self.allocator
-                .free(std::mem::take(&mut self.allocation2))
-                .unwrap();
+
+            for b in &mut self.buffers {
+                self.allocator
+                    .free(std::mem::take(&mut b.allocation))
+                    .expect("problem with buffer destruction");
+                self.device.destroy_buffer(b.buffer, None);
+            }
+
             std::mem::ManuallyDrop::drop(&mut self.allocator);
-            self.device.destroy_buffer(self.buffer1, None);
-            self.device.destroy_buffer(self.buffer2, None);
             self.pools.cleanup(&self.device);
             self.pipeline.cleanup(&self.device);
             self.device.destroy_render_pass(self.renderpass, None);
@@ -918,6 +941,138 @@ impl Drop for Kompura {
             std::mem::ManuallyDrop::drop(&mut self.debug);
             self.instance.destroy_instance(None)
         };
+    }
+}
+
+struct Model<V, I> {
+    vertex_data: Vec<V>,
+    handle_to_index: std::collections::HashMap<usize, usize>,
+    handles: Vec<usize>,
+    instances: Vec<I>,
+    first_invisible: usize,
+    next_handle: usize,
+    vertexbuffer: Option<GpuBuffer>,
+    instancebuffer: Option<GpuBuffer>,
+}
+
+#[derive(Debug, Clone)]
+struct InvalidHandle;
+impl std::fmt::Display for InvalidHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "invalid handle")
+    }
+}
+impl std::error::Error for InvalidHandle {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+
+impl<V, I> Model<V, I> {
+    fn get(&self, handle: usize) -> Option<&I> {
+        if let Some(&index) = self.handle_to_index.get(&handle) {
+            self.instances.get(index)
+        } else {
+            None
+        }
+    }
+    fn get_mut(&mut self, handle: usize) -> Option<&mut I> {
+        if let Some(&index) = self.handle_to_index.get(&handle) {
+            self.instances.get_mut(index)
+        } else {
+            None
+        }
+    }
+    fn swap_by_handle(&mut self, handle1: usize, handle2: usize) -> Result<(), InvalidHandle> {
+        if handle1 == handle2 {
+            return Ok(());
+        }
+        if let (Some(&index1), Some(&index2)) = (
+            self.handle_to_index.get(&handle1),
+            self.handle_to_index.get(&handle2),
+        ) {
+            self.handles.swap(index1, index2);
+            self.instances.swap(index1, index2);
+            self.handle_to_index.insert(index1, handle2);
+            self.handle_to_index.insert(index2, handle1);
+            Ok(())
+        } else {
+            Err(InvalidHandle)
+        }
+    }
+    fn swap_by_index(&mut self, index1: usize, index2: usize) {
+        if index1 == index2 {
+            return;
+        }
+        let handle1 = self.handles[index1];
+        let handle2 = self.handles[index2];
+        self.handles.swap(index1, index2);
+        self.instances.swap(index1, index2);
+        self.handle_to_index.insert(index1, handle2);
+        self.handle_to_index.insert(index2, handle1);
+    }
+    fn is_visible(&self, handle: usize) -> Result<bool, InvalidHandle> {
+        if let Some(index) = self.handle_to_index.get(&handle) {
+            Ok(index < &self.first_invisible)
+        } else {
+            Err(InvalidHandle)
+        }
+    }
+
+    fn make_visible(&mut self, handle: usize) -> Result<(), InvalidHandle> {
+        if let Some(&index) = self.handle_to_index.get(&handle) {
+            if index < self.first_invisible {
+                return Ok(());
+            }
+            self.swap_by_index(index, self.first_invisible);
+            self.first_invisible += 1;
+            Ok(())
+        } else {
+            Err(InvalidHandle)
+        }
+    }
+
+    fn make_invisible(&mut self, handle: usize) -> Result<(), InvalidHandle> {
+        if let Some(&index) = self.handle_to_index.get(&handle) {
+            if index >= self.first_invisible {
+                return Ok(());
+            }
+            self.swap_by_index(index, self.first_invisible - 1);
+            self.first_invisible -= 1;
+            Ok(())
+        } else {
+            Err(InvalidHandle)
+        }
+    }
+
+    fn insert(&mut self, element: I) -> usize {
+        let handle = self.next_handle;
+        self.next_handle += 1;
+        let index = self.instances.len();
+        self.instances.push(element);
+        self.handles.push(handle);
+        self.handle_to_index.insert(handle, index);
+        handle
+    }
+    fn insert_visibly(&mut self, element: I) -> usize {
+        let new_handle = self.insert(element);
+        self.make_visible(new_handle).ok(); //can't go wrong, see previous line
+        new_handle
+    }
+    fn remove(&mut self, handle: usize) -> Result<I, InvalidHandle> {
+        if let Some(&index) = self.handle_to_index.get(&handle) {
+            if index < self.first_invisible {
+                self.swap_by_index(index, self.first_invisible - 1);
+                self.first_invisible -= 1;
+            }
+            self.swap_by_index(self.first_invisible, self.instances.len() - 1);
+            self.handles.pop();
+            self.handle_to_index.remove(&handle);
+            //must be Some(), otherwise we couldn't have found an index
+            Ok(self.instances.pop().unwrap())
+        } else {
+            Err(InvalidHandle)
+        }
     }
 }
 
@@ -970,8 +1125,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let waiting_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
             let semaphores_finished =
                 [kompura.swapchain.rendering_finished[kompura.swapchain.current_image]];
-            dbg!(image_index);
-            dbg!(&kompura.command_buffers);
             let commandbuffers = [kompura.command_buffers[image_index as usize]];
             let submit_info = [vk::SubmitInfo::builder()
                 .wait_semaphores(&semaphores_available)
