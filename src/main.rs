@@ -739,6 +739,13 @@ fn fill_commandbuffers(
 struct GpuBuffer {
     buffer: vk::Buffer,
     allocation: Allocation,
+    logical_device: ash::Device,
+    size_in_bytes: u64,
+    buffer_usage: vk::BufferUsageFlags,
+    allocation_name: String,
+    allocation_location: gpu_allocator::MemoryLocation,
+    linear: bool,
+    allocation_scheme: AllocationScheme,
 }
 
 impl GpuBuffer {
@@ -746,19 +753,19 @@ impl GpuBuffer {
         allocator: &mut Allocator,
         size_in_bytes: u64,
         buffer_usage: vk::BufferUsageFlags,
-        logical_device: &ash::Device,
-        allocation_name: &str,
+        logical_device: ash::Device,
+        allocation_name: String,
         allocation_location: gpu_allocator::MemoryLocation,
         linear: bool,
         allocation_scheme: AllocationScheme,
-    ) -> Result<GpuBuffer, ash::vk::Result> {
+    ) -> Result<GpuBuffer, vk::Result> {
         let buffer_create_info = vk::BufferCreateInfo::builder()
             .size(size_in_bytes)
             .usage(buffer_usage);
         let buffer = unsafe { logical_device.create_buffer(&buffer_create_info, None)? };
         let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
         let allocation_info = AllocationCreateDesc {
-            name: allocation_name,
+            name: &allocation_name,
             requirements,
             location: allocation_location,
             linear,
@@ -769,13 +776,43 @@ impl GpuBuffer {
         unsafe {
             logical_device.bind_buffer_memory(buffer, allocation.memory(), allocation.offset())?
         }
-        Ok(GpuBuffer { buffer, allocation })
+        Ok(GpuBuffer {
+            buffer,
+            allocation,
+            logical_device: logical_device,
+            size_in_bytes,
+            buffer_usage,
+            allocation_name: allocation_name.to_string(),
+            allocation_location,
+            linear,
+            allocation_scheme,
+        })
     }
 
-    fn write_to_memory(&self, data: &[f32]) {
-        let data_ptr = self.allocation.mapped_ptr().unwrap().as_ptr() as *mut f32;
+    fn write_to_memory<T: Sized>(
+        &mut self,
+        allocator: &mut Allocator,
+        data: &[T],
+    ) -> Result<(), vk::Result> {
+        let bytes_to_write = (data.len() * std::mem::size_of::<T>()) as u64;
+        if bytes_to_write > self.size_in_bytes {
+            let new_buffer = GpuBuffer::new(
+                allocator,
+                bytes_to_write,
+                self.buffer_usage,
+                self.logical_device.clone(),
+                self.allocation_name.clone(),
+                self.allocation_location,
+                self.linear,
+                self.allocation_scheme,
+            )?;
+            *self = new_buffer;
+        };
+
+        let data_ptr = self.allocation.mapped_ptr().unwrap().as_ptr() as *mut T;
         unsafe { data_ptr.copy_from_nonoverlapping(data.as_ptr(), data.len()) };
         println!("Pituus: {:?}", data.len());
+        Ok(())
     }
 }
 
@@ -844,12 +881,12 @@ impl Kompura {
 
         let mut allocator = Allocator::new(&allocator_create_info)?;
 
-        let gpu_buffer1 = GpuBuffer::new(
+        let mut gpu_buffer1 = GpuBuffer::new(
             &mut allocator,
             96,
             vk::BufferUsageFlags::VERTEX_BUFFER,
-            &logical_device,
-            "buffer1",
+            logical_device.clone(),
+            "buffer1".to_string(),
             gpu_allocator::MemoryLocation::CpuToGpu,
             true,
             AllocationScheme::GpuAllocatorManaged,
@@ -861,14 +898,14 @@ impl Kompura {
             0.0f32, -0.6f32, 0.0f32, 1.0f32,
         ];
 
-        gpu_buffer1.write_to_memory(&data);
+        gpu_buffer1.write_to_memory(&mut allocator, &data)?;
 
-        let gpu_buffer2 = GpuBuffer::new(
+        let mut gpu_buffer2 = GpuBuffer::new(
             &mut allocator,
             120,
             vk::BufferUsageFlags::VERTEX_BUFFER,
-            &logical_device,
-            "buffer2",
+            logical_device.clone(),
+            "buffer2".to_string(),
             gpu_allocator::MemoryLocation::CpuToGpu,
             true,
             AllocationScheme::GpuAllocatorManaged,
@@ -880,7 +917,7 @@ impl Kompura {
             1.0f32, 0.8f32, 0.7f32, 0.0f32, 1.0f32, 1.0f32, 0.0f32, 0.0f32, 1.0f32, 1.0f32,
         ];
 
-        gpu_buffer2.write_to_memory(&data2);
+        gpu_buffer2.write_to_memory(&mut allocator, &data2)?;
 
         let command_buffers =
             create_command_buffers(&logical_device, &pools, swapchain.framebuffers.len())?;
@@ -951,8 +988,9 @@ struct Model<V, I> {
     instances: Vec<I>,
     first_invisible: usize,
     next_handle: usize,
-    vertexbuffer: Option<GpuBuffer>,
-    instancebuffer: Option<GpuBuffer>,
+    vertex_buffer: Option<GpuBuffer>,
+    instance_buffer: Option<GpuBuffer>,
+    logical_device: ash::Device,
 }
 
 #[derive(Debug, Clone)]
@@ -1072,6 +1110,28 @@ impl<V, I> Model<V, I> {
             Ok(self.instances.pop().unwrap())
         } else {
             Err(InvalidHandle)
+        }
+    }
+
+    fn update_vertexbuffer(&mut self, allocator: &mut Allocator) -> Result<(), vk::Result> {
+        if let Some(buffer) = &mut self.vertex_buffer {
+            buffer.write_to_memory(allocator, &self.vertex_data)?;
+            Ok(())
+        } else {
+            let bytes = (self.vertex_data.len() * std::mem::size_of::<V>()) as u64;
+            let mut buffer = GpuBuffer::new(
+                allocator,
+                bytes,
+                vk::BufferUsageFlags::VERTEX_BUFFER,
+                self.logical_device.clone(),
+                "VertexBuffer".to_string(),
+                gpu_allocator::MemoryLocation::CpuToGpu,
+                true,
+                AllocationScheme::GpuAllocatorManaged,
+            )?;
+            buffer.write_to_memory(allocator, &self.vertex_data)?;
+            self.vertex_buffer = Some(buffer);
+            Ok(())
         }
     }
 }
