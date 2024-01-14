@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 ash = "0.37.3"
 gpu-allocator = "0.25.0"
+nalgebra = "0.32.3"
 winit = "0.28.7"
