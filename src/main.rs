@@ -318,6 +318,9 @@ struct SwapchainComp {
     amount_of_images: u32,
     current_image: usize,
     may_begin_drawing: Vec<vk::Fence>,
+    depth_image: vk::Image,
+    depth_image_allocation: Option<Allocation>,
+    depth_imageview: vk::ImageView,
 }
 
 impl SwapchainComp {
@@ -328,12 +331,14 @@ impl SwapchainComp {
         surfaces: &Surface,
         queue_families: &QueueFamilies,
         queues: &Queues,
+        allocator: &mut Allocator,
     ) -> Result<SwapchainComp, vk::Result> {
         let surface_capabilities = surfaces.get_capabilities(physical_device)?;
         let extent = surface_capabilities.current_extent;
         let surface_present_modes = surfaces.get_present_modes(physical_device)?;
         let surface_format = *surfaces.get_formats(physical_device)?.first().unwrap();
         let queue_families_indices = [queue_families.graphics_q_index.unwrap()];
+
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
             .surface(surfaces.surface)
             .min_image_count(
@@ -350,11 +355,13 @@ impl SwapchainComp {
             .pre_transform(surface_capabilities.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(vk::PresentModeKHR::FIFO);
+
         let swapchain_loader = ash::extensions::khr::Swapchain::new(instance, logical_device);
         let swapchain = unsafe { swapchain_loader.create_swapchain(&swapchain_create_info, None)? };
         let swapchain_images = unsafe { swapchain_loader.get_swapchain_images(swapchain)? };
         let amount_of_images = swapchain_images.len() as u32;
         let mut swapchain_imageviews = Vec::with_capacity(swapchain_images.len());
+
         for image in &swapchain_images {
             let subresource_range = vk::ImageSubresourceRange::builder()
                 .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -362,11 +369,13 @@ impl SwapchainComp {
                 .level_count(1)
                 .base_array_layer(0)
                 .layer_count(1);
+
             let imageview_create_info = vk::ImageViewCreateInfo::builder()
                 .image(*image)
                 .view_type(vk::ImageViewType::TYPE_2D)
                 .format(vk::Format::B8G8R8A8_UNORM)
                 .subresource_range(*subresource_range);
+
             let imageview =
                 unsafe { logical_device.create_image_view(&imageview_create_info, None) }?;
             swapchain_imageviews.push(imageview);
@@ -389,6 +398,62 @@ impl SwapchainComp {
             may_begin_drawing.push(fence);
         }
 
+        let extent3d = vk::Extent3D {
+            width: extent.width,
+            height: extent.height,
+            depth: 1,
+        };
+
+        let depth_image_info = vk::ImageCreateInfo::builder()
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(vk::Format::D32_SFLOAT)
+            .extent(extent3d)
+            .mip_levels(1)
+            .array_layers(1)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .tiling(vk::ImageTiling::OPTIMAL)
+            .usage(vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .queue_family_indices(&queue_families_indices);
+
+        let depth_image = unsafe { logical_device.create_image(&depth_image_info, None)? };
+        let depth_image_requirements =
+            unsafe { logical_device.get_image_memory_requirements(depth_image) };
+
+        // TODO
+        // Fix error:
+        //Internal("Memory block must be Some.")
+        let depth_image_allocation = allocator
+            .allocate(&AllocationCreateDesc {
+                name: "Depth image",
+                requirements: depth_image_requirements,
+                location: gpu_allocator::MemoryLocation::GpuOnly,
+                linear: false,
+                allocation_scheme: AllocationScheme::GpuAllocatorManaged,
+            })
+            .unwrap();
+        unsafe {
+            logical_device.bind_image_memory(
+                depth_image,
+                depth_image_allocation.memory(),
+                depth_image_allocation.offset(),
+            )?
+        }
+
+        let subresource_range = vk::ImageSubresourceRange::builder()
+            .aspect_mask(vk::ImageAspectFlags::DEPTH)
+            .base_mip_level(0)
+            .level_count(1)
+            .base_array_layer(0)
+            .layer_count(1);
+        let imageview_create_info = vk::ImageViewCreateInfo::builder()
+            .image(depth_image)
+            .view_type(vk::ImageViewType::TYPE_2D)
+            .format(vk::Format::D32_SFLOAT)
+            .subresource_range(*subresource_range);
+        let depth_imageview =
+            unsafe { logical_device.create_image_view(&imageview_create_info, None) }?;
+
         Ok(SwapchainComp {
             swapchain_loader,
             swapchain,
@@ -402,6 +467,9 @@ impl SwapchainComp {
             image_available,
             rendering_finished,
             may_begin_drawing,
+            depth_image,
+            depth_image_allocation: Some(depth_image_allocation),
+            depth_imageview,
         })
     }
 
@@ -411,7 +479,7 @@ impl SwapchainComp {
         renderpass: vk::RenderPass,
     ) -> Result<(), vk::Result> {
         for iv in &self.imageviews {
-            let iview = [*iv];
+            let iview = [*iv, self.depth_imageview];
             let frame_buffer_info = vk::FramebufferCreateInfo::builder()
                 .render_pass(renderpass)
                 .attachments(&iview)
@@ -424,7 +492,11 @@ impl SwapchainComp {
         Ok(())
     }
 
-    unsafe fn cleanup(&mut self, logical_device: &ash::Device) {
+    unsafe fn cleanup(&mut self, logical_device: &ash::Device, allocator: &mut Allocator) {
+        logical_device.destroy_image_view(self.depth_imageview, None);
+        if let Some(allocation) = self.depth_image_allocation.take() {
+            allocator.free(allocation).unwrap();
+        }
         for fence in &self.may_begin_drawing {
             logical_device.destroy_fence(*fence, None);
         }
@@ -593,6 +665,10 @@ impl Pipeline {
         let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder();
         let pipeline_layout =
             unsafe { logical_device.create_pipeline_layout(&pipeline_layout_info, None) }?;
+        let depth_stencil_info = vk::PipelineDepthStencilStateCreateInfo::builder()
+            .depth_test_enable(true)
+            .depth_write_enable(true)
+            .depth_compare_op(vk::CompareOp::LESS_OR_EQUAL);
         let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
             .stages(&shader_stages)
             .vertex_input_state(&vertex_input_info)
@@ -600,6 +676,7 @@ impl Pipeline {
             .viewport_state(&viewport_info)
             .rasterization_state(&rasterizer_info)
             .multisample_state(&multisampler_info)
+            .depth_stencil_state(&depth_stencil_info)
             .color_blend_state(&colourblend_info)
             .layout(pipeline_layout)
             .render_pass(*renderpass)
@@ -660,26 +737,42 @@ impl Pools {
 }
 
 fn init_renderpass(
-    physical_device: vk::PhysicalDevice,
     logical_device: &ash::Device,
     format: vk::Format,
 ) -> Result<RenderPass, vk::Result> {
-    let attachments = [vk::AttachmentDescription::builder()
-        .format(format)
-        .load_op(vk::AttachmentLoadOp::CLEAR)
-        .store_op(vk::AttachmentStoreOp::STORE)
-        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-        .samples(vk::SampleCountFlags::TYPE_1)
-        .build()];
+    let attachments = [
+        vk::AttachmentDescription::builder()
+            .format(format)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+            .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .build(),
+        vk::AttachmentDescription::builder()
+            .format(vk::Format::D32_SFLOAT)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::DONT_CARE)
+            .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+            .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .build(),
+    ];
     let color_attachment_references = [vk::AttachmentReference {
         attachment: 0,
         layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
     }];
+    let depth_attachment_reference = vk::AttachmentReference {
+        attachment: 1,
+        layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
     let subpasses = [vk::SubpassDescription::builder()
         .color_attachments(&color_attachment_references)
+        .depth_stencil_attachment(&depth_attachment_reference)
         .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
         .build()];
     let subpass_dependencies = [vk::SubpassDependency::builder()
@@ -724,11 +817,19 @@ fn fill_command_buffers(
         unsafe {
             logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info)?;
         }
-        let clear_values = [vk::ClearValue {
-            color: vk::ClearColorValue {
-                float32: [0.0, 0.0, 0.08, 1.0],
+        let clear_values = [
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.08, 1.0],
+                },
             },
-        }];
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+        ];
         let renderpass_begin_info = vk::RenderPassBeginInfo::builder()
             .render_pass(*renderpass)
             .framebuffer(swapchain.framebuffers[i])
@@ -879,23 +980,6 @@ impl Kompura {
 
         let (logical_device, queues) =
             init_device_and_queues(&instance, physical_device, &queue_families, &layer_names)?;
-        let mut swapchain = SwapchainComp::init(
-            &instance,
-            physical_device,
-            &logical_device,
-            &surfaces,
-            &queue_families,
-            &queues,
-        )?;
-
-        let renderpass = init_renderpass(
-            physical_device,
-            &logical_device,
-            swapchain.surface_format.format,
-        )?;
-        swapchain.create_framebuffers(&logical_device, renderpass)?;
-        let pipeline = Pipeline::init(&logical_device, &swapchain, &renderpass)?;
-        let pools = Pools::init(&logical_device, &queue_families)?;
 
         let allocator_create_info = AllocatorCreateDesc {
             instance: instance.clone(),
@@ -907,8 +991,22 @@ impl Kompura {
         };
 
         let mut allocator = Allocator::new(&allocator_create_info)?;
+        let mut swapchain = SwapchainComp::init(
+            &instance,
+            physical_device,
+            &logical_device,
+            &surfaces,
+            &queue_families,
+            &queues,
+            &mut allocator,
+        )?;
 
-        let mut gpu_buffer1 = GpuBuffer::new(
+        let renderpass = init_renderpass(&logical_device, swapchain.surface_format.format)?;
+        swapchain.create_framebuffers(&logical_device, renderpass)?;
+        let pipeline = Pipeline::init(&logical_device, &swapchain, &renderpass)?;
+        let pools = Pools::init(&logical_device, &queue_families)?;
+
+        let gpu_buffer1 = GpuBuffer::new(
             &mut allocator,
             96,
             vk::BufferUsageFlags::VERTEX_BUFFER,
@@ -919,15 +1017,7 @@ impl Kompura {
             AllocationScheme::GpuAllocatorManaged,
         )?;
 
-        let data = [
-            0.5f32, 0.0f32, 0.0f32, 1.0f32, 0.0f32, 0.2f32, 0.0f32, 1.0f32, -0.5f32, 0.0f32,
-            0.0f32, 1.0f32, -0.9f32, -0.9f32, 0.0f32, 1.0f32, 0.3f32, -0.8f32, 0.0f32, 1.0f32,
-            0.0f32, -0.6f32, 0.0f32, 1.0f32,
-        ];
-
-        gpu_buffer1.write_to_memory(&mut allocator, &data)?;
-
-        let mut gpu_buffer2 = GpuBuffer::new(
+        let gpu_buffer2 = GpuBuffer::new(
             &mut allocator,
             120,
             vk::BufferUsageFlags::VERTEX_BUFFER,
@@ -938,37 +1028,18 @@ impl Kompura {
             AllocationScheme::GpuAllocatorManaged,
         )?;
 
-        let data2 = [
-            15.0f32, 0.0f32, 1.0f32, 0.0f32, 1.0f32, 15.0f32, 0.0f32, 1.0f32, 0.0f32, 1.0f32,
-            15.0f32, 0.0f32, 1.0f32, 0.0f32, 1.0f32, 1.0f32, 0.8f32, 0.7f32, 0.0f32, 1.0f32,
-            1.0f32, 0.8f32, 0.7f32, 0.0f32, 1.0f32, 1.0f32, 0.0f32, 0.0f32, 1.0f32, 1.0f32,
-        ];
-
-        gpu_buffer2.write_to_memory(&mut allocator, &data2)?;
-
         let command_buffers =
             create_command_buffers(&logical_device, &pools, swapchain.framebuffers.len())?;
 
         let mut cube = Model::cube(&logical_device);
+
         cube.insert_visibly(InstanceData {
-            model_matrix: na::Matrix4::new_scaling(0.8).into(),
-            colour: [1.0, 0.0, 0.0],
+            model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.05, 0.05, 0.0))).into(),
+            colour: [1.0, 1.0, 0.2],
         });
         cube.insert_visibly(InstanceData {
-            model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.5, 0.0))
-                * na::Matrix4::new_scaling(0.8))
-            .into(),
-            colour: [0.6, 0.5, 0.0],
-        });
-        cube.insert_visibly(InstanceData {
-            model_matrix: (na::Matrix4::from_scaled_axis(na::Vector3::new(
-                0.0,
-                0.0,
-                std::f32::consts::FRAC_PI_3,
-            )) * na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.9, 0.0))
-                * na::Matrix4::new_scaling(0.8))
-            .into(),
-            colour: [0.0, 0.5, 0.0],
+            model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.1))).into(),
+            colour: [0.2, 0.4, 1.0],
         });
         cube.update_vertex_buffer(&mut allocator);
         cube.update_instance_buffer(&mut allocator);
@@ -1040,7 +1111,7 @@ impl Drop for Kompura {
             self.pools.cleanup(&self.device);
             self.pipeline.cleanup(&self.device);
             self.device.destroy_render_pass(self.renderpass, None);
-            self.swapchain.cleanup(&self.device);
+            self.swapchain.cleanup(&self.device, &mut self.allocator);
             self.device.destroy_device(None);
             std::mem::ManuallyDrop::drop(&mut self.surfaces);
             std::mem::ManuallyDrop::drop(&mut self.debug);
