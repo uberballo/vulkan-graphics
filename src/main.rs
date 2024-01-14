@@ -419,16 +419,12 @@ impl SwapchainComp {
         let depth_image = unsafe { logical_device.create_image(&depth_image_info, None)? };
         let depth_image_requirements =
             unsafe { logical_device.get_image_memory_requirements(depth_image) };
-
-        // TODO
-        // Fix error:
-        //Internal("Memory block must be Some.")
         let depth_image_allocation = allocator
             .allocate(&AllocationCreateDesc {
                 name: "Depth image",
                 requirements: depth_image_requirements,
                 location: gpu_allocator::MemoryLocation::GpuOnly,
-                linear: false,
+                linear: true,
                 allocation_scheme: AllocationScheme::GpuAllocatorManaged,
             })
             .unwrap();
@@ -438,8 +434,7 @@ impl SwapchainComp {
                 depth_image_allocation.memory(),
                 depth_image_allocation.offset(),
             )?
-        }
-
+        };
         let subresource_range = vk::ImageSubresourceRange::builder()
             .aspect_mask(vk::ImageAspectFlags::DEPTH)
             .base_mip_level(0)
@@ -493,10 +488,8 @@ impl SwapchainComp {
     }
 
     unsafe fn cleanup(&mut self, logical_device: &ash::Device, allocator: &mut Allocator) {
+        logical_device.destroy_image(self.depth_image, None);
         logical_device.destroy_image_view(self.depth_imageview, None);
-        if let Some(allocation) = self.depth_image_allocation.take() {
-            allocator.free(allocation).unwrap();
-        }
         for fence in &self.may_begin_drawing {
             logical_device.destroy_fence(*fence, None);
         }
