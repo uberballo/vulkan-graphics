@@ -7,6 +7,8 @@ use ash::extensions::khr::Swapchain;
 use ash::prelude::VkResult;
 use ash::vk;
 use ash::vk::CommandBuffer;
+use ash::vk::DescriptorPool;
+use ash::vk::DescriptorSet;
 use ash::vk::PhysicalDevice;
 use ash::vk::RenderPass;
 use ash::Entry;
@@ -19,6 +21,8 @@ use winit::platform::windows::DeviceIdExtWindows;
 use winit::platform::windows::WindowExtWindows;
 mod model;
 use model::Model;
+mod camera;
+use camera::Camera;
 extern crate nalgebra as na;
 
 unsafe extern "system" fn vulkan_debug_utils_callback(
@@ -521,11 +525,15 @@ impl Drop for SwapchainComp {
 struct Pipeline {
     pipeline: vk::Pipeline,
     layout: vk::PipelineLayout,
+    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
 }
 
 impl Pipeline {
     fn cleanup(&self, logical_device: &ash::Device) {
         unsafe {
+            for dsl in &self.descriptor_set_layouts {
+                logical_device.destroy_descriptor_set_layout(*dsl, None);
+            }
             logical_device.destroy_pipeline(self.pipeline, None);
             logical_device.destroy_pipeline_layout(self.layout, None);
         }
@@ -596,7 +604,6 @@ impl Pipeline {
                 format: vk::Format::R32G32B32_SFLOAT,
             },
         ];
-
         let vertex_binding_descs = [
             vk::VertexInputBindingDescription {
                 binding: 0,
@@ -609,7 +616,6 @@ impl Pipeline {
                 input_rate: vk::VertexInputRate::INSTANCE,
             },
         ];
-
         let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::builder()
             .vertex_attribute_descriptions(&vertex_attrib_descs)
             .vertex_binding_descriptions(&vertex_binding_descs);
@@ -638,6 +644,10 @@ impl Pipeline {
             .polygon_mode(vk::PolygonMode::FILL);
         let multisampler_info = vk::PipelineMultisampleStateCreateInfo::builder()
             .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+        let depth_stencil_info = vk::PipelineDepthStencilStateCreateInfo::builder()
+            .depth_test_enable(true)
+            .depth_write_enable(true)
+            .depth_compare_op(vk::CompareOp::LESS_OR_EQUAL);
         let colourblend_attachments = [vk::PipelineColorBlendAttachmentState::builder()
             .blend_enable(true)
             .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
@@ -655,13 +665,22 @@ impl Pipeline {
             .build()];
         let colourblend_info =
             vk::PipelineColorBlendStateCreateInfo::builder().attachments(&colourblend_attachments);
-        let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder();
+        let descriptorset_layout_binding_descs = [vk::DescriptorSetLayoutBinding::builder()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::VERTEX)
+            .build()];
+        let descriptorset_layout_info = vk::DescriptorSetLayoutCreateInfo::builder()
+            .bindings(&descriptorset_layout_binding_descs);
+        let descriptorsetlayout = unsafe {
+            logical_device.create_descriptor_set_layout(&descriptorset_layout_info, None)
+        }?;
+        let desc_layouts = vec![descriptorsetlayout];
+        let pipelinelayout_info =
+            vk::PipelineLayoutCreateInfo::builder().set_layouts(&desc_layouts);
         let pipeline_layout =
-            unsafe { logical_device.create_pipeline_layout(&pipeline_layout_info, None) }?;
-        let depth_stencil_info = vk::PipelineDepthStencilStateCreateInfo::builder()
-            .depth_test_enable(true)
-            .depth_write_enable(true)
-            .depth_compare_op(vk::CompareOp::LESS_OR_EQUAL);
+            unsafe { logical_device.create_pipeline_layout(&pipelinelayout_info, None) }?;
         let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
             .stages(&shader_stages)
             .vertex_input_state(&vertex_input_info)
@@ -690,6 +709,7 @@ impl Pipeline {
         Ok(Pipeline {
             pipeline: graphics_pipeline,
             layout: pipeline_layout,
+            descriptor_set_layouts: desc_layouts,
         })
     }
 }
@@ -795,66 +815,6 @@ fn create_command_buffers(
         .command_buffer_count(amount as u32);
     unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }
 }
-fn fill_command_buffers(
-    command_buffers: &[vk::CommandBuffer],
-    logical_device: &ash::Device,
-    renderpass: &vk::RenderPass,
-    swapchain: &SwapchainComp,
-    pipeline: &Pipeline,
-    vb: &vk::Buffer,
-    vb2: &vk::Buffer,
-    models: &Vec<Model<[f32; 3], InstanceData>>,
-) -> Result<(), vk::Result> {
-    for (i, &command_buffer) in command_buffers.iter().enumerate() {
-        let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder();
-        unsafe {
-            logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info)?;
-        }
-        let clear_values = [
-            vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.08, 1.0],
-                },
-            },
-            vk::ClearValue {
-                depth_stencil: vk::ClearDepthStencilValue {
-                    depth: 1.0,
-                    stencil: 0,
-                },
-            },
-        ];
-        let renderpass_begin_info = vk::RenderPassBeginInfo::builder()
-            .render_pass(*renderpass)
-            .framebuffer(swapchain.framebuffers[i])
-            .render_area(vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: 0 },
-                extent: swapchain.extent,
-            })
-            .clear_values(&clear_values);
-        unsafe {
-            logical_device.cmd_begin_render_pass(
-                command_buffer,
-                &renderpass_begin_info,
-                vk::SubpassContents::INLINE,
-            );
-            logical_device.cmd_bind_pipeline(
-                command_buffer,
-                vk::PipelineBindPoint::GRAPHICS,
-                pipeline.pipeline,
-            );
-
-            //logical_device.cmd_bind_vertex_buffers(command_buffer, 0, &[*vb], &[0]);
-            //logical_device.cmd_bind_vertex_buffers(command_buffer, 1, &[*vb2], &[0]);
-            //logical_device.cmd_draw(command_buffer, 6, 1, 0, 0);
-            for m in models {
-                m.draw(command_buffer);
-            }
-            logical_device.cmd_end_render_pass(command_buffer);
-            logical_device.end_command_buffer(command_buffer)?;
-        }
-    }
-    Ok(())
-}
 
 struct GpuBuffer {
     buffer: vk::Buffer,
@@ -916,6 +876,11 @@ impl GpuBuffer {
     ) -> Result<(), vk::Result> {
         let bytes_to_write = (data.len() * std::mem::size_of::<T>()) as u64;
         if bytes_to_write > self.size_in_bytes {
+            allocator
+                .free(std::mem::take(&mut self.allocation))
+                .expect("Error freeing model buffer");
+            unsafe { self.logical_device.destroy_buffer(self.buffer, None) };
+
             let new_buffer = GpuBuffer::new(
                 allocator,
                 bytes_to_write,
@@ -931,7 +896,6 @@ impl GpuBuffer {
 
         let data_ptr = self.allocation.mapped_ptr().unwrap().as_ptr() as *mut T;
         unsafe { data_ptr.copy_from_nonoverlapping(data.as_ptr(), data.len()) };
-        println!("Pituus: {:?}", data.len());
         Ok(())
     }
 }
@@ -955,6 +919,9 @@ struct Kompura {
     allocator: std::mem::ManuallyDrop<Allocator>,
     buffers: Vec<GpuBuffer>,
     models: Vec<Model<[f32; 3], InstanceData>>,
+    uniform_buffer: GpuBuffer,
+    descriptor_pool: DescriptorPool,
+    descriptor_sets: Vec<DescriptorSet>,
 }
 
 impl Kompura {
@@ -1024,30 +991,55 @@ impl Kompura {
         let command_buffers =
             create_command_buffers(&logical_device, &pools, swapchain.framebuffers.len())?;
 
-        let mut cube = Model::cube(&logical_device);
-
-        cube.insert_visibly(InstanceData {
-            model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.05, 0.05, 0.0))).into(),
-            colour: [1.0, 1.0, 0.2],
-        });
-        cube.insert_visibly(InstanceData {
-            model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.1))).into(),
-            colour: [0.2, 0.4, 1.0],
-        });
-        cube.update_vertex_buffer(&mut allocator);
-        cube.update_instance_buffer(&mut allocator);
-        let models = vec![cube];
-
-        fill_command_buffers(
-            &command_buffers,
-            &logical_device,
-            &renderpass,
-            &swapchain,
-            &pipeline,
-            &gpu_buffer1.buffer,
-            &gpu_buffer2.buffer,
-            &models,
+        let mut uniform_buffer = GpuBuffer::new(
+            &mut allocator,
+            64,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            logical_device.clone(),
+            "".to_string(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            false,
+            AllocationScheme::GpuAllocatorManaged,
         )?;
+
+        let cameratransform: [[f32; 4]; 4] = na::Matrix4::identity().into();
+        uniform_buffer
+            .write_to_memory(&mut allocator, &cameratransform)
+            .unwrap();
+
+        let pool_sizes = [vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: swapchain.amount_of_images,
+        }];
+        let descriptor_pool_info = vk::DescriptorPoolCreateInfo::builder()
+            .max_sets(swapchain.amount_of_images)
+            .pool_sizes(&pool_sizes);
+        let descriptor_pool =
+            unsafe { logical_device.create_descriptor_pool(&descriptor_pool_info, None) }?;
+
+        let desc_layouts =
+            vec![pipeline.descriptor_set_layouts[0]; swapchain.amount_of_images as usize];
+        let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(descriptor_pool)
+            .set_layouts(&desc_layouts);
+        let descriptor_sets =
+            unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }?;
+
+        for (_, descset) in descriptor_sets.iter().enumerate() {
+            let buffer_infos = [vk::DescriptorBufferInfo {
+                buffer: uniform_buffer.buffer,
+                offset: 0,
+                range: 64,
+            }];
+            let desc_sets_write = [vk::WriteDescriptorSet::builder()
+                .dst_set(*descset)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(&buffer_infos)
+                .build()];
+
+            unsafe { logical_device.update_descriptor_sets(&desc_sets_write, &[]) };
+        }
 
         Ok(Kompura {
             window,
@@ -1067,8 +1059,67 @@ impl Kompura {
             command_buffers,
             allocator: std::mem::ManuallyDrop::new(allocator),
             buffers: vec![gpu_buffer1, gpu_buffer2],
-            models,
+            models: vec![],
+            uniform_buffer,
+            descriptor_pool,
+            descriptor_sets,
         })
+    }
+
+    fn update_command_buffer(&mut self, index: usize) -> Result<(), vk::Result> {
+        let command_buffer = self.command_buffers[index];
+        let commandbuffer_begininfo = vk::CommandBufferBeginInfo::builder();
+        unsafe {
+            self.device
+                .begin_command_buffer(command_buffer, &commandbuffer_begininfo)?;
+        }
+        let clearvalues = [
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.08, 1.0],
+                },
+            },
+            vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 1.0,
+                    stencil: 0,
+                },
+            },
+        ];
+        let renderpass_begininfo = vk::RenderPassBeginInfo::builder()
+            .render_pass(self.renderpass)
+            .framebuffer(self.swapchain.framebuffers[index])
+            .render_area(vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent: self.swapchain.extent,
+            })
+            .clear_values(&clearvalues);
+        unsafe {
+            self.device.cmd_begin_render_pass(
+                command_buffer,
+                &renderpass_begininfo,
+                vk::SubpassContents::INLINE,
+            );
+            self.device.cmd_bind_pipeline(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline.pipeline,
+            );
+            self.device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline.layout,
+                0,
+                &[self.descriptor_sets[index]],
+                &[],
+            );
+            for m in &self.models {
+                m.draw(command_buffer);
+            }
+            self.device.cmd_end_render_pass(command_buffer);
+            self.device.end_command_buffer(command_buffer)?;
+        }
+        Ok(())
     }
 }
 
@@ -1079,6 +1130,12 @@ impl Drop for Kompura {
                 .device_wait_idle()
                 .expect("something wrong while waiting");
 
+            self.device
+                .destroy_descriptor_pool(self.descriptor_pool, None);
+            self.allocator
+                .free(std::mem::take(&mut self.uniform_buffer.allocation))
+                .expect("problem with buffer destruction");
+            self.device.destroy_buffer(self.uniform_buffer.buffer, None);
             for b in &mut self.buffers {
                 self.allocator
                     .free(std::mem::take(&mut b.allocation))
@@ -1091,13 +1148,13 @@ impl Drop for Kompura {
                         .free(std::mem::take(&mut vb.allocation))
                         .expect("problem with buffer destruction");
                     self.device.destroy_buffer(vb.buffer, None);
-                }
+                };
                 if let Some(ib) = &mut m.instance_buffer {
                     self.allocator
                         .free(std::mem::take(&mut ib.allocation))
                         .expect("problem with buffer destruction");
                     self.device.destroy_buffer(ib.buffer, None);
-                }
+                };
             }
 
             std::mem::ManuallyDrop::drop(&mut self.allocator);
@@ -1117,7 +1174,71 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eventloop = winit::event_loop::EventLoop::new();
     let window = winit::window::Window::new(&eventloop)?;
     let mut kompura = Kompura::init(window)?;
-
+    let mut camera = Camera::default();
+    let mut cube = Model::cube(&kompura.device);
+    cube.insert_visibly(InstanceData {
+        model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.5))
+            * na::Matrix4::new_scaling(0.5))
+        .into(),
+        colour: [0.2, 0.4, 1.0],
+    });
+    cube.insert_visibly(InstanceData {
+        model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.05, 0.05, 0.0))
+            * na::Matrix4::new_scaling(0.5))
+        .into(),
+        colour: [1.0, 1.0, 0.2],
+    });
+    for i in 0..10 {
+        for j in 0..10 {
+            cube.insert_visibly(InstanceData {
+                model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(
+                    i as f32 * 0.2 - 1.0,
+                    j as f32 * 0.2 - 1.0,
+                    0.5,
+                )) * na::Matrix4::new_scaling(0.03))
+                .into(),
+                colour: [1.0, i as f32 * 0.07, j as f32 * 0.07],
+            });
+            cube.insert_visibly(InstanceData {
+                model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(
+                    i as f32 * 0.2 - 1.0,
+                    0.0,
+                    j as f32 * 0.2 - 1.0,
+                )) * na::Matrix4::new_scaling(0.02))
+                .into(),
+                colour: [i as f32 * 0.07, j as f32 * 0.07, 1.0],
+            });
+        }
+    }
+    cube.insert_visibly(InstanceData {
+        model_matrix: (na::Matrix4::from_scaled_axis(na::Vector3::new(0.0, 0.0, 1.4))
+            * na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.5, 0.0))
+            * na::Matrix4::new_scaling(0.1))
+        .into(),
+        colour: [0.0, 0.5, 0.0],
+    });
+    cube.insert_visibly(InstanceData {
+        model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.5, 0.0, 0.0))
+            * na::Matrix4::new_nonuniform_scaling(&na::Vector3::new(0.5, 0.01, 0.01)))
+        .into(),
+        colour: [1.0, 0.5, 0.5],
+    });
+    cube.insert_visibly(InstanceData {
+        model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.5, 0.0))
+            * na::Matrix4::new_nonuniform_scaling(&na::Vector3::new(0.01, 0.5, 0.01)))
+        .into(),
+        colour: [0.5, 1.0, 0.5],
+    });
+    cube.insert_visibly(InstanceData {
+        model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.0))
+            * na::Matrix4::new_nonuniform_scaling(&na::Vector3::new(0.01, 0.01, 0.5)))
+        .into(),
+        colour: [0.5, 0.5, 1.0],
+    });
+    cube.update_vertex_buffer(&mut kompura.allocator);
+    cube.update_instance_buffer(&mut kompura.allocator);
+    kompura.models = vec![cube];
+    use winit::event::{Event, WindowEvent};
     eventloop.run(move |event, _, controlflow| match event {
         Event::WindowEvent {
             event: WindowEvent::CloseRequested,
@@ -1128,6 +1249,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Event::MainEventsCleared => {
             kompura.window.request_redraw();
         }
+        Event::WindowEvent {
+            event: WindowEvent::KeyboardInput { input, .. },
+            ..
+        } => match input {
+            winit::event::KeyboardInput {
+                state: winit::event::ElementState::Pressed,
+                virtual_keycode: Some(keycode),
+                ..
+            } => match keycode {
+                winit::event::VirtualKeyCode::Right => {
+                    camera.turn_right(0.1);
+                }
+                winit::event::VirtualKeyCode::Left => {
+                    camera.turn_left(0.1);
+                }
+                winit::event::VirtualKeyCode::Up => {
+                    camera.move_forward(0.05);
+                }
+                winit::event::VirtualKeyCode::Down => {
+                    camera.move_backward(0.05);
+                }
+                winit::event::VirtualKeyCode::PageUp => {
+                    camera.turn_up(0.02);
+                }
+                winit::event::VirtualKeyCode::PageDown => {
+                    camera.turn_down(0.02);
+                }
+                _ => {}
+            },
+            _ => {}
+        },
         Event::RedrawRequested(_) => {
             let (image_index, _) = unsafe {
                 kompura
@@ -1157,6 +1309,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ])
                     .expect("resetting fences");
             }
+            camera.update_buffer(&mut kompura.allocator, &mut kompura.uniform_buffer);
+            for m in &mut kompura.models {
+                m.update_instance_buffer(&mut kompura.allocator);
+            }
+            kompura
+                .update_command_buffer(image_index as usize)
+                .expect("updating the command buffer");
             let semaphores_available =
                 [kompura.swapchain.image_available[kompura.swapchain.current_image]];
             let waiting_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -1197,6 +1356,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {}
     });
-
-    Ok(())
 }

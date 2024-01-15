@@ -42,7 +42,7 @@ impl<V, I> Model<V, I> {
             None
         }
     }
-    fn get_mut(&mut self, handle: usize) -> Option<&mut I> {
+    pub fn get_mut(&mut self, handle: usize) -> Option<&mut I> {
         if let Some(&index) = self.handle_to_index.get(&handle) {
             self.instances.get_mut(index)
         } else {
@@ -157,6 +157,7 @@ impl<V, I> Model<V, I> {
                 true,
                 AllocationScheme::GpuAllocatorManaged,
             )?;
+
             buffer.write_to_memory(allocator, &self.vertex_data)?;
             self.vertex_buffer = Some(buffer);
             Ok(())
