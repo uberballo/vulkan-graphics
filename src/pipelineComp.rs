@@ -56,45 +56,75 @@ impl PipelineComp {
                 format: vk::Format::R32G32B32_SFLOAT,
             },
             vk::VertexInputAttributeDescription {
-                binding: 1,
+                binding: 0,
                 location: 1,
+                offset: 12,
+                format: vk::Format::R32G32B32_SFLOAT,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 1,
+                location: 2,
                 offset: 0,
                 format: vk::Format::R32G32B32A32_SFLOAT,
             },
             vk::VertexInputAttributeDescription {
                 binding: 1,
-                location: 2,
+                location: 3,
                 offset: 16,
                 format: vk::Format::R32G32B32A32_SFLOAT,
             },
             vk::VertexInputAttributeDescription {
                 binding: 1,
-                location: 3,
+                location: 4,
                 offset: 32,
                 format: vk::Format::R32G32B32A32_SFLOAT,
             },
             vk::VertexInputAttributeDescription {
                 binding: 1,
-                location: 4,
+                location: 5,
                 offset: 48,
                 format: vk::Format::R32G32B32A32_SFLOAT,
             },
             vk::VertexInputAttributeDescription {
                 binding: 1,
-                location: 5,
+                location: 6,
                 offset: 64,
+                format: vk::Format::R32G32B32A32_SFLOAT,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 1,
+                location: 7,
+                offset: 80,
+                format: vk::Format::R32G32B32A32_SFLOAT,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 1,
+                location: 8,
+                offset: 96,
+                format: vk::Format::R32G32B32A32_SFLOAT,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 1,
+                location: 9,
+                offset: 112,
+                format: vk::Format::R32G32B32A32_SFLOAT,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 1,
+                location: 10,
+                offset: 128,
                 format: vk::Format::R32G32B32_SFLOAT,
             },
         ];
         let vertex_binding_descs = [
             vk::VertexInputBindingDescription {
                 binding: 0,
-                stride: 12,
+                stride: 24,
                 input_rate: vk::VertexInputRate::VERTEX,
             },
             vk::VertexInputBindingDescription {
                 binding: 1,
-                stride: 76,
+                stride: 140,
                 input_rate: vk::VertexInputRate::INSTANCE,
             },
         ];
@@ -119,11 +149,13 @@ impl PipelineComp {
         let viewport_info = vk::PipelineViewportStateCreateInfo::builder()
             .viewports(&viewports)
             .scissors(&scissors);
+
         let rasterizer_info = vk::PipelineRasterizationStateCreateInfo::builder()
             .line_width(1.0)
             .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
-            .cull_mode(vk::CullModeFlags::NONE)
+            .cull_mode(vk::CullModeFlags::BACK)
             .polygon_mode(vk::PolygonMode::FILL);
+
         let multisampler_info = vk::PipelineMultisampleStateCreateInfo::builder()
             .rasterization_samples(vk::SampleCountFlags::TYPE_1);
         let depth_stencil_info = vk::PipelineDepthStencilStateCreateInfo::builder()
@@ -163,6 +195,7 @@ impl PipelineComp {
             vk::PipelineLayoutCreateInfo::builder().set_layouts(&desc_layouts);
         let pipeline_layout =
             unsafe { logical_device.create_pipeline_layout(&pipelinelayout_info, None) }?;
+
         let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
             .stages(&shader_stages)
             .vertex_input_state(&vertex_input_info)
@@ -175,6 +208,7 @@ impl PipelineComp {
             .layout(pipeline_layout)
             .render_pass(*renderpass)
             .subpass(0);
+
         let graphics_pipeline = unsafe {
             logical_device
                 .create_graphics_pipelines(

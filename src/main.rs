@@ -11,6 +11,7 @@ use ash::Instance;
 use gpuBuffer::GpuBuffer;
 use gpu_allocator::vulkan::*;
 use model::InstanceData;
+use model::VertexData;
 use pools::Pools;
 use queues::init_device_and_queues;
 use queues::Queues;
@@ -186,7 +187,7 @@ struct Kompura {
     command_buffers: Vec<CommandBuffer>,
     allocator: std::mem::ManuallyDrop<Allocator>,
     buffers: Vec<GpuBuffer>,
-    models: Vec<Model<[f32; 3], InstanceData>>,
+    models: Vec<Model<VertexData, InstanceData>>,
     uniform_buffer: GpuBuffer,
     descriptor_pool: DescriptorPool,
     descriptor_sets: Vec<DescriptorSet>,
@@ -261,7 +262,7 @@ impl Kompura {
 
         let mut uniform_buffer = GpuBuffer::new(
             &mut allocator,
-            64,
+            128,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             logical_device.clone(),
             "".to_string(),
@@ -270,9 +271,12 @@ impl Kompura {
             AllocationScheme::GpuAllocatorManaged,
         )?;
 
-        let cameratransform: [[f32; 4]; 4] = na::Matrix4::identity().into();
+        let cameratransforms: [[[f32; 4]; 4]; 2] = [
+            na::Matrix4::identity().into(),
+            na::Matrix4::identity().into(),
+        ];
         uniform_buffer
-            .write_to_memory(&mut allocator, &cameratransform)
+            .write_to_memory(&mut allocator, &cameratransforms)
             .unwrap();
 
         let pool_sizes = [vk::DescriptorPoolSize {
@@ -297,7 +301,7 @@ impl Kompura {
             let buffer_infos = [vk::DescriptorBufferInfo {
                 buffer: uniform_buffer.buffer,
                 offset: 0,
-                range: 64,
+                range: 128,
             }];
             let desc_sets_write = [vk::WriteDescriptorSet::builder()
                 .dst_set(*descset)
@@ -423,6 +427,12 @@ impl Drop for Kompura {
                         .expect("problem with buffer destruction");
                     self.device.destroy_buffer(ib.buffer, None);
                 };
+                if let Some(idb) = &mut m.index_buffer {
+                    self.allocator
+                        .free(std::mem::take(&mut idb.allocation))
+                        .expect("problem with buffer destruction");
+                    self.device.destroy_buffer(idb.buffer, None);
+                }
             }
 
             std::mem::ManuallyDrop::drop(&mut self.allocator);
@@ -438,74 +448,89 @@ impl Drop for Kompura {
     }
 }
 
+fn screenshot(kompura: &Kompura) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eventloop = winit::event_loop::EventLoop::new();
     let window = winit::window::Window::new(&eventloop)?;
     let mut kompura = Kompura::init(window)?;
-    let mut camera = Camera::default();
-    let mut cube = Model::cube(&kompura.device);
-    cube.insert_visibly(InstanceData {
-        model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.5))
-            * na::Matrix4::new_scaling(0.5))
-        .into(),
-        colour: [0.2, 0.4, 1.0],
-    });
-    cube.insert_visibly(InstanceData {
-        model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.05, 0.05, 0.0))
-            * na::Matrix4::new_scaling(0.5))
-        .into(),
-        colour: [1.0, 1.0, 0.2],
-    });
-    for i in 0..10 {
-        for j in 0..10 {
-            cube.insert_visibly(InstanceData {
-                model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(
-                    i as f32 * 0.2 - 1.0,
-                    j as f32 * 0.2 - 1.0,
-                    0.5,
-                )) * na::Matrix4::new_scaling(0.03))
-                .into(),
-                colour: [1.0, i as f32 * 0.07, j as f32 * 0.07],
-            });
-            cube.insert_visibly(InstanceData {
-                model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(
-                    i as f32 * 0.2 - 1.0,
-                    0.0,
-                    j as f32 * 0.2 - 1.0,
-                )) * na::Matrix4::new_scaling(0.02))
-                .into(),
-                colour: [i as f32 * 0.07, j as f32 * 0.07, 1.0],
-            });
-        }
-    }
-    cube.insert_visibly(InstanceData {
-        model_matrix: (na::Matrix4::from_scaled_axis(na::Vector3::new(0.0, 0.0, 1.4))
-            * na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.5, 0.0))
-            * na::Matrix4::new_scaling(0.1))
-        .into(),
-        colour: [0.0, 0.5, 0.0],
-    });
-    cube.insert_visibly(InstanceData {
-        model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.5, 0.0, 0.0))
-            * na::Matrix4::new_nonuniform_scaling(&na::Vector3::new(0.5, 0.01, 0.01)))
-        .into(),
-        colour: [1.0, 0.5, 0.5],
-    });
-    cube.insert_visibly(InstanceData {
-        model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.5, 0.0))
-            * na::Matrix4::new_nonuniform_scaling(&na::Vector3::new(0.01, 0.5, 0.01)))
-        .into(),
-        colour: [0.5, 1.0, 0.5],
-    });
-    cube.insert_visibly(InstanceData {
-        model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.0))
-            * na::Matrix4::new_nonuniform_scaling(&na::Vector3::new(0.01, 0.01, 0.5)))
-        .into(),
-        colour: [0.5, 0.5, 1.0],
-    });
-    cube.update_vertex_buffer(&mut kompura.allocator);
-    cube.update_instance_buffer(&mut kompura.allocator);
-    kompura.models = vec![cube];
+    let mut camera = camera::Camera::builder().build();
+
+    //let mut ico = Model::icosahedron(&kompura.device);
+    //ico.refine();
+    let mut sphere = Model::sphere(3, &kompura.device);
+    sphere.insert_visibly(InstanceData::from_matrix_and_colour(
+        na::Matrix4::new_scaling(0.5),
+        [0.5, 0.0, 0.0],
+    ));
+    //let mut cube = Model::cube(&kompura.device);
+    //cube.insert_visibly(InstanceData {
+    //    model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.1))
+    //        * na::Matrix4::new_scaling(0.1))
+    //    .into(),
+    //    colour: [0.2, 0.4, 1.0],
+    //});
+    //cube.insert_visibly(InstanceData {
+    //    model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.05, 0.05, 0.0))
+    //        * na::Matrix4::new_scaling(0.1))
+    //    .into(),
+    //    colour: [1.0, 1.0, 0.2],
+    //});
+    //for i in 0..10 {
+    //    for j in 0..10 {
+    //        cube.insert_visibly(InstanceData {
+    //            model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(
+    //                i as f32 * 0.2 - 1.0,
+    //                j as f32 * 0.2 - 1.0,
+    //                0.5,
+    //            )) * na::Matrix4::new_scaling(0.03))
+    //            .into(),
+    //            colour: [1.0, i as f32 * 0.07, j as f32 * 0.07],
+    //        });
+    //        cube.insert_visibly(InstanceData {
+    //            model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(
+    //                i as f32 * 0.2 - 1.0,
+    //                0.0,
+    //                j as f32 * 0.2 - 1.0,
+    //            )) * na::Matrix4::new_scaling(0.02))
+    //            .into(),
+    //            colour: [i as f32 * 0.07, j as f32 * 0.07, 1.0],
+    //        });
+    //    }
+    //}
+    //cube.insert_visibly(InstanceData {
+    //    model_matrix: (na::Matrix4::from_scaled_axis(na::Vector3::new(0.0, 0.0, 1.4))
+    //        * na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.5, 0.0))
+    //        * na::Matrix4::new_scaling(0.1))
+    //    .into(),
+    //    colour: [0.0, 0.5, 0.0],
+    //});
+    //cube.insert_visibly(InstanceData {
+    //    model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.5, 0.0, 0.0))
+    //        * na::Matrix4::new_nonuniform_scaling(&na::Vector3::new(0.5, 0.01, 0.01)))
+    //    .into(),
+    //    colour: [1.0, 0.5, 0.5],
+    //});
+    //cube.insert_visibly(InstanceData {
+    //    model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.5, 0.0))
+    //        * na::Matrix4::new_nonuniform_scaling(&na::Vector3::new(0.01, 0.5, 0.01)))
+    //    .into(),
+    //    colour: [0.5, 1.0, 0.5],
+    //});
+
+    //cube.insert_visibly(InstanceData {
+    //    model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.0))
+    //        * na::Matrix4::new_nonuniform_scaling(&na::Vector3::new(0.01, 0.01, 0.5)))
+    //    .into(),
+    //    colour: [0.5, 0.5, 1.0],
+    //});
+
+    sphere.update_vertex_buffer(&mut kompura.allocator);
+    sphere.update_index_buffer(&mut kompura.allocator);
+    sphere.update_instance_buffer(&mut kompura.allocator);
+    kompura.models = vec![sphere];
     use winit::event::{Event, WindowEvent};
     eventloop.run(move |event, _, controlflow| match event {
         Event::WindowEvent {
@@ -543,6 +568,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 winit::event::VirtualKeyCode::PageDown => {
                     camera.turn_down(0.02);
+                }
+                winit::event::VirtualKeyCode::F12 => {
+                    screenshot(&kompura);
                 }
                 _ => {}
             },
