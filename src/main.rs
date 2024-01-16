@@ -1,16 +1,10 @@
-use std::borrow::Borrow;
-use std::borrow::BorrowMut;
-use std::io::Cursor;
-use std::os::raw::c_void;
-
-use ash::extensions::khr::Swapchain;
 use ash::prelude::VkResult;
 use ash::vk;
 use ash::vk::CommandBuffer;
 use ash::vk::DescriptorPool;
 use ash::vk::DescriptorSet;
 use ash::vk::PhysicalDevice;
-use ash::vk::Pipeline;
+
 use ash::vk::RenderPass;
 use ash::Entry;
 use ash::Instance;
@@ -21,9 +15,7 @@ use pools::Pools;
 use queues::init_device_and_queues;
 use queues::Queues;
 use swapchainComp::SwapchainComp;
-use winit::event::WindowEvent;
-use winit::platform::windows::DeviceIdExtWindows;
-use winit::platform::windows::WindowExtWindows;
+
 mod model;
 use model::Model;
 mod camera;

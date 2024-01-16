@@ -28,12 +28,12 @@ impl SwapchainComp {
         logical_device: &ash::Device,
         surfaces: &Surface,
         queue_families: &QueueFamilies,
-        queues: &Queues,
+        _queues: &Queues,
         allocator: &mut Allocator,
     ) -> Result<SwapchainComp, vk::Result> {
         let surface_capabilities = surfaces.get_capabilities(physical_device)?;
         let extent = surface_capabilities.current_extent;
-        let surface_present_modes = surfaces.get_present_modes(physical_device)?;
+        let _surface_present_modes = surfaces.get_present_modes(physical_device)?;
         let surface_format = *surfaces.get_formats(physical_device)?.first().unwrap();
         let queue_families_indices = [queue_families.graphics_q_index.unwrap()];
 
@@ -185,7 +185,7 @@ impl SwapchainComp {
         Ok(())
     }
 
-    pub unsafe fn cleanup(&mut self, logical_device: &ash::Device, allocator: &mut Allocator) {
+    pub unsafe fn cleanup(&mut self, logical_device: &ash::Device, _allocator: &mut Allocator) {
         logical_device.destroy_image(self.depth_image, None);
         logical_device.destroy_image_view(self.depth_imageview, None);
         for fence in &self.may_begin_drawing {

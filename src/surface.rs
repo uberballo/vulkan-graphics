@@ -1,7 +1,7 @@
 use std::os::raw::c_void;
 
 use ash::vk;
-use winit::{event::Event, platform::windows::WindowExtWindows};
+use winit::{platform::windows::WindowExtWindows};
 
 pub struct Surface {
     win_surface_loader: ash::extensions::khr::Win32Surface,
@@ -18,9 +18,9 @@ impl Surface {
         let hwnd = window.hwnd();
         let create_info = vk::Win32SurfaceCreateInfoKHR::builder().hwnd(hwnd as *const c_void);
 
-        let win_surface_loader = ash::extensions::khr::Win32Surface::new(&entry, &instance);
+        let win_surface_loader = ash::extensions::khr::Win32Surface::new(entry, instance);
         let surface = unsafe { win_surface_loader.create_win32_surface(&create_info, None) }?;
-        let surface_loader = ash::extensions::khr::Surface::new(&entry, &instance);
+        let surface_loader = ash::extensions::khr::Surface::new(entry, instance);
         Ok(Surface {
             win_surface_loader,
             surface,

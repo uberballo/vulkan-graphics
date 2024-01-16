@@ -24,12 +24,8 @@ impl QueueFamilies {
             {
                 found_graphics_q_index = Some(index as u32);
             }
-            if qfam.queue_count > 0 && qfam.queue_flags.contains(vk::QueueFlags::TRANSFER) {
-                if found_transfer_q_index.is_none()
-                    || !qfam.queue_flags.contains(vk::QueueFlags::GRAPHICS)
-                {
-                    found_transfer_q_index = Some(index as u32);
-                }
+            if qfam.queue_count > 0 && qfam.queue_flags.contains(vk::QueueFlags::TRANSFER) && (found_transfer_q_index.is_none() || !qfam.queue_flags.contains(vk::QueueFlags::GRAPHICS)) {
+                found_transfer_q_index = Some(index as u32);
             }
         }
         Ok(QueueFamilies {

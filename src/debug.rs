@@ -7,7 +7,7 @@ pub struct Debug {
 
 impl Debug {
     pub fn init(entry: &ash::Entry, instance: &ash::Instance) -> Result<Debug, vk::Result> {
-        let mut debug_create_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+        let debug_create_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
             .message_severity(
                 vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
                     | vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE

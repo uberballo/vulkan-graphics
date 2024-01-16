@@ -44,7 +44,7 @@ impl GpuBuffer {
         Ok(GpuBuffer {
             buffer,
             allocation,
-            logical_device: logical_device,
+            logical_device,
             size_in_bytes,
             buffer_usage,
             allocation_name: allocation_name.to_string(),
@@ -59,7 +59,7 @@ impl GpuBuffer {
         allocator: &mut Allocator,
         data: &[T],
     ) -> Result<(), vk::Result> {
-        let bytes_to_write = (data.len() * std::mem::size_of::<T>()) as u64;
+        let bytes_to_write = std::mem::size_of_val(data) as u64;
         if bytes_to_write > self.size_in_bytes {
             allocator
                 .free(std::mem::take(&mut self.allocation))
