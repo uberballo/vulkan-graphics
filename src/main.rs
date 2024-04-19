@@ -39,7 +39,7 @@ extern crate nalgebra as na;
 fn init_instance(entry: &ash::Entry, layer_names: &[&str]) -> VkResult<Instance> {
     let engine_name = std::ffi::CString::new("UnknownGameEngine").unwrap();
     let app_name = std::ffi::CString::new("Tittle!").unwrap();
-    let app_info = vk::ApplicationInfo::builder()
+    let app_info = vk::ApplicationInfo::default()
         .application_name(&app_name)
         .engine_name(&engine_name)
         .engine_version(vk::make_api_version(0, 0, 40, 0))
@@ -51,12 +51,12 @@ fn init_instance(entry: &ash::Entry, layer_names: &[&str]) -> VkResult<Instance>
         .collect();
     let layer_name_pointers: Vec<*const i8> = layer_names_c.iter().map(|x| x.as_ptr()).collect();
     let extension_name_pointers: Vec<*const i8> = vec![
-        ash::extensions::ext::DebugUtils::name().as_ptr(),
-        ash::extensions::khr::Surface::name().as_ptr(),
-        ash::extensions::khr::Win32Surface::name().as_ptr(),
+        ash::ext::debug_utils::NAME.as_ptr(),
+        ash::khr::surface::NAME.as_ptr(),
+        ash::khr::win32_surface::NAME.as_ptr(),
     ];
 
-    let mut debug_create_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+    let mut debug_create_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
         .message_severity(
             vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
                 | vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE
@@ -70,7 +70,7 @@ fn init_instance(entry: &ash::Entry, layer_names: &[&str]) -> VkResult<Instance>
         )
         .pfn_user_callback(Some(debug::vulkan_debug_utils_callback));
 
-    let instance_create_info = vk::InstanceCreateInfo::builder()
+    let instance_create_info = vk::InstanceCreateInfo::default()
         .push_next(&mut debug_create_info)
         .application_info(&app_info)
         .enabled_layer_names(&layer_name_pointers)
@@ -107,7 +107,7 @@ fn init_renderpass(
     format: vk::Format,
 ) -> Result<RenderPass, vk::Result> {
     let attachments = [
-        vk::AttachmentDescription::builder()
+        vk::AttachmentDescription::default()
             .format(format)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::STORE)
@@ -115,9 +115,8 @@ fn init_renderpass(
             .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .build(),
-        vk::AttachmentDescription::builder()
+            .samples(vk::SampleCountFlags::TYPE_1),
+        vk::AttachmentDescription::default()
             .format(vk::Format::D32_SFLOAT)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::DONT_CARE)
@@ -125,8 +124,7 @@ fn init_renderpass(
             .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
             .initial_layout(vk::ImageLayout::UNDEFINED)
             .final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .build(),
+            .samples(vk::SampleCountFlags::TYPE_1),
     ];
     let color_attachment_references = [vk::AttachmentReference {
         attachment: 0,
@@ -136,21 +134,19 @@ fn init_renderpass(
         attachment: 1,
         layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
     };
-    let subpasses = [vk::SubpassDescription::builder()
+    let subpasses = [vk::SubpassDescription::default()
         .color_attachments(&color_attachment_references)
         .depth_stencil_attachment(&depth_attachment_reference)
-        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .build()];
-    let subpass_dependencies = [vk::SubpassDependency::builder()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)];
+    let subpass_dependencies = [vk::SubpassDependency::default()
         .src_subpass(vk::SUBPASS_EXTERNAL)
         .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
         .dst_subpass(0)
         .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
         .dst_access_mask(
             vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-        )
-        .build()];
-    let renderpass_info = vk::RenderPassCreateInfo::builder()
+        )];
+    let renderpass_info = vk::RenderPassCreateInfo::default()
         .attachments(&attachments)
         .subpasses(&subpasses)
         .dependencies(&subpass_dependencies);
@@ -163,7 +159,7 @@ fn create_command_buffers(
     pools: &Pools,
     amount: usize,
 ) -> Result<Vec<vk::CommandBuffer>, vk::Result> {
-    let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+    let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::default()
         .command_pool(pools.command_pool_graphics)
         .command_buffer_count(amount as u32);
     unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }
@@ -283,7 +279,7 @@ impl Kompura {
             ty: vk::DescriptorType::UNIFORM_BUFFER,
             descriptor_count: swapchain.amount_of_images,
         }];
-        let descriptor_pool_info = vk::DescriptorPoolCreateInfo::builder()
+        let descriptor_pool_info = vk::DescriptorPoolCreateInfo::default()
             .max_sets(swapchain.amount_of_images)
             .pool_sizes(&pool_sizes);
         let descriptor_pool =
@@ -291,7 +287,7 @@ impl Kompura {
 
         let desc_layouts =
             vec![pipeline.descriptor_set_layouts[0]; swapchain.amount_of_images as usize];
-        let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
+        let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::default()
             .descriptor_pool(descriptor_pool)
             .set_layouts(&desc_layouts);
         let descriptor_sets =
@@ -303,12 +299,11 @@ impl Kompura {
                 offset: 0,
                 range: 128,
             }];
-            let desc_sets_write = [vk::WriteDescriptorSet::builder()
+            let desc_sets_write = [vk::WriteDescriptorSet::default()
                 .dst_set(*descset)
                 .dst_binding(0)
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&buffer_infos)
-                .build()];
+                .buffer_info(&buffer_infos)];
 
             unsafe { logical_device.update_descriptor_sets(&desc_sets_write, &[]) };
         }
@@ -340,7 +335,7 @@ impl Kompura {
 
     fn update_command_buffer(&mut self, index: usize) -> Result<(), vk::Result> {
         let command_buffer = self.command_buffers[index];
-        let commandbuffer_begininfo = vk::CommandBufferBeginInfo::builder();
+        let commandbuffer_begininfo = vk::CommandBufferBeginInfo::default();
         unsafe {
             self.device
                 .begin_command_buffer(command_buffer, &commandbuffer_begininfo)?;
@@ -358,7 +353,7 @@ impl Kompura {
                 },
             },
         ];
-        let renderpass_begininfo = vk::RenderPassBeginInfo::builder()
+        let renderpass_begininfo = vk::RenderPassBeginInfo::default()
             .render_pass(self.renderpass)
             .framebuffer(self.swapchain.framebuffers[index])
             .render_area(vk::Rect2D {
@@ -453,10 +448,10 @@ fn screenshot(kompura: &Kompura) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let eventloop = winit::event_loop::EventLoop::new();
+    let eventloop = winit::event_loop::EventLoop::new()?;
     let window = winit::window::Window::new(&eventloop)?;
     let mut kompura = Kompura::init(window)?;
-    let mut camera = camera::Camera::builder().build();
+    let mut camera = camera::Camera::default();
 
     //let mut ico = Model::icosahedron(&kompura.device);
     //ico.refine();
@@ -618,12 +613,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let semaphores_finished =
                 [kompura.swapchain.rendering_finished[kompura.swapchain.current_image]];
             let commandbuffers = [kompura.command_buffers[image_index as usize]];
-            let submit_info = [vk::SubmitInfo::builder()
+            let submit_info = [vk::SubmitInfo::default()
                 .wait_semaphores(&semaphores_available)
                 .wait_dst_stage_mask(&waiting_stages)
                 .command_buffers(&commandbuffers)
-                .signal_semaphores(&semaphores_finished)
-                .build()];
+                .signal_semaphores(&semaphores_finished)];
             unsafe {
                 kompura
                     .device
@@ -636,7 +630,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             let swapchains = [kompura.swapchain.swapchain];
             let indices = [image_index];
-            let present_info = vk::PresentInfoKHR::builder()
+            let present_info = vk::PresentInfoKHR::default()
                 .wait_semaphores(&semaphores_finished)
                 .swapchains(&swapchains)
                 .image_indices(&indices);
@@ -652,4 +646,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {}
     });
+    Ok(())
 }

@@ -1,13 +1,13 @@
 use ash::vk;
 
 pub struct Debug {
-    loader: ash::extensions::ext::DebugUtils,
+    loader: ash::ext::debug_utils::Instance,
     messenger: vk::DebugUtilsMessengerEXT,
 }
 
 impl Debug {
     pub fn init(entry: &ash::Entry, instance: &ash::Instance) -> Result<Debug, vk::Result> {
-        let debug_create_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+        let debug_create_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
             .message_severity(
                 vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
                     | vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE
@@ -21,7 +21,7 @@ impl Debug {
             )
             .pfn_user_callback(Some(vulkan_debug_utils_callback));
 
-        let loader = ash::extensions::ext::DebugUtils::new(entry, instance);
+        let loader = ash::ext::debug_utils::Instance::new(entry, instance);
         let messenger = unsafe { loader.create_debug_utils_messenger(&debug_create_info, None)? };
 
         Ok(Debug { loader, messenger })

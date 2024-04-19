@@ -4,7 +4,7 @@ use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, AllocationScheme, 
 use crate::{queueFamilies::QueueFamilies, queues::Queues, surface::Surface};
 
 pub struct SwapchainComp {
-    pub swapchain_loader: ash::extensions::khr::Swapchain,
+    pub swapchain_loader: ash::khr::swapchain::Device,
     pub swapchain: vk::SwapchainKHR,
     pub images: Vec<vk::Image>,
     pub imageviews: Vec<vk::ImageView>,
@@ -37,7 +37,7 @@ impl SwapchainComp {
         let surface_format = *surfaces.get_formats(physical_device)?.first().unwrap();
         let queue_families_indices = [queue_families.graphics_q_index.unwrap()];
 
-        let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
+        let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
             .surface(surfaces.surface)
             .min_image_count(
                 3.max(surface_capabilities.min_image_count)
@@ -54,25 +54,25 @@ impl SwapchainComp {
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(vk::PresentModeKHR::FIFO);
 
-        let swapchain_loader = ash::extensions::khr::Swapchain::new(instance, logical_device);
+        let swapchain_loader = ash::khr::swapchain::Device::new(instance, logical_device);
         let swapchain = unsafe { swapchain_loader.create_swapchain(&swapchain_create_info, None)? };
         let swapchain_images = unsafe { swapchain_loader.get_swapchain_images(swapchain)? };
         let amount_of_images = swapchain_images.len() as u32;
         let mut swapchain_imageviews = Vec::with_capacity(swapchain_images.len());
 
         for image in &swapchain_images {
-            let subresource_range = vk::ImageSubresourceRange::builder()
+            let subresource_range = vk::ImageSubresourceRange::default()
                 .aspect_mask(vk::ImageAspectFlags::COLOR)
                 .base_mip_level(0)
                 .level_count(1)
                 .base_array_layer(0)
                 .layer_count(1);
 
-            let imageview_create_info = vk::ImageViewCreateInfo::builder()
+            let imageview_create_info = vk::ImageViewCreateInfo::default()
                 .image(*image)
                 .view_type(vk::ImageViewType::TYPE_2D)
                 .format(vk::Format::B8G8R8A8_UNORM)
-                .subresource_range(*subresource_range);
+                .subresource_range(subresource_range);
 
             let imageview =
                 unsafe { logical_device.create_image_view(&imageview_create_info, None) }?;
@@ -81,9 +81,9 @@ impl SwapchainComp {
         let mut image_available = vec![];
         let mut rendering_finished = vec![];
         let mut may_begin_drawing: Vec<vk::Fence> = vec![];
-        let semaphore_info = vk::SemaphoreCreateInfo::builder();
+        let semaphore_info = vk::SemaphoreCreateInfo::default();
         let fence_create_info =
-            vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
+            vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
 
         for _ in 0..amount_of_images {
             let semaphore_available =
@@ -102,7 +102,7 @@ impl SwapchainComp {
             depth: 1,
         };
 
-        let depth_image_info = vk::ImageCreateInfo::builder()
+        let depth_image_info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
             .format(vk::Format::D32_SFLOAT)
             .extent(extent3d)
@@ -133,17 +133,17 @@ impl SwapchainComp {
                 depth_image_allocation.offset(),
             )?
         };
-        let subresource_range = vk::ImageSubresourceRange::builder()
+        let subresource_range = vk::ImageSubresourceRange::default()
             .aspect_mask(vk::ImageAspectFlags::DEPTH)
             .base_mip_level(0)
             .level_count(1)
             .base_array_layer(0)
             .layer_count(1);
-        let imageview_create_info = vk::ImageViewCreateInfo::builder()
+        let imageview_create_info = vk::ImageViewCreateInfo::default()
             .image(depth_image)
             .view_type(vk::ImageViewType::TYPE_2D)
             .format(vk::Format::D32_SFLOAT)
-            .subresource_range(*subresource_range);
+            .subresource_range(subresource_range);
         let depth_imageview =
             unsafe { logical_device.create_image_view(&imageview_create_info, None) }?;
 
@@ -173,7 +173,7 @@ impl SwapchainComp {
     ) -> Result<(), vk::Result> {
         for iv in &self.imageviews {
             let iview = [*iv, self.depth_imageview];
-            let frame_buffer_info = vk::FramebufferCreateInfo::builder()
+            let frame_buffer_info = vk::FramebufferCreateInfo::default()
                 .render_pass(renderpass)
                 .attachments(&iview)
                 .width(self.extent.width)

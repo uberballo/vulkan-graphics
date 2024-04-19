@@ -24,20 +24,17 @@ pub fn init_device_and_queues(
 
     let priorities = [1.0f32];
     let queue_infos = [
-        vk::DeviceQueueCreateInfo::builder()
+        vk::DeviceQueueCreateInfo::default()
             .queue_family_index(queue_families.graphics_q_index.unwrap())
-            .queue_priorities(&priorities)
-            .build(),
-        vk::DeviceQueueCreateInfo::builder()
+            .queue_priorities(&priorities),
+        vk::DeviceQueueCreateInfo::default()
             .queue_family_index(queue_families.transfer_q_index.unwrap())
-            .queue_priorities(&priorities)
-            .build(),
+            .queue_priorities(&priorities),
     ];
-    let device_extension_name_pointers: Vec<*const i8> =
-        vec![ash::extensions::khr::Swapchain::name().as_ptr()];
+    let device_extension_name_pointers: Vec<*const i8> = vec![vk::KHR_SWAPCHAIN_NAME.as_ptr()];
 
-    let features = vk::PhysicalDeviceFeatures::builder().fill_mode_non_solid(true);
-    let device_create_info = vk::DeviceCreateInfo::builder()
+    let features = vk::PhysicalDeviceFeatures::default().fill_mode_non_solid(true);
+    let device_create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_infos)
         .enabled_extension_names(&device_extension_name_pointers)
         .enabled_layer_names(&layer_name_pointers)

@@ -12,12 +12,12 @@ impl Pools {
         logical_device: &ash::Device,
         queue_families: &QueueFamilies,
     ) -> Result<Pools, vk::Result> {
-        let graphics_command_pool_info = vk::CommandPoolCreateInfo::builder()
+        let graphics_command_pool_info = vk::CommandPoolCreateInfo::default()
             .queue_family_index(queue_families.graphics_q_index.unwrap())
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
         let command_pool_graphics =
             unsafe { logical_device.create_command_pool(&graphics_command_pool_info, None)? };
-        let transfer_command_pool_info = vk::CommandPoolCreateInfo::builder()
+        let transfer_command_pool_info = vk::CommandPoolCreateInfo::default()
             .queue_family_index(queue_families.transfer_q_index.unwrap())
             .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
         let command_pool_transfer =

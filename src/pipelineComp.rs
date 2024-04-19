@@ -32,22 +32,22 @@ impl PipelineComp {
         let frag_code =
             ash::util::read_spv(&mut frag_spv_file).expect("Failed to read vertex shader spv file");
 
-        let vertex_shader_create_info = vk::ShaderModuleCreateInfo::builder().code(&vertex_code);
+        let vertex_shader_create_info = vk::ShaderModuleCreateInfo::default().code(&vertex_code);
         let vertex_shader_module =
             unsafe { logical_device.create_shader_module(&vertex_shader_create_info, None)? };
-        let fragment_shader_create_info = vk::ShaderModuleCreateInfo::builder().code(&frag_code);
+        let fragment_shader_create_info = vk::ShaderModuleCreateInfo::default().code(&frag_code);
         let fragment_shader_module =
             unsafe { logical_device.create_shader_module(&fragment_shader_create_info, None)? };
         let main_function_name = std::ffi::CString::new("main").unwrap();
-        let vertex_shader_stage = vk::PipelineShaderStageCreateInfo::builder()
+        let vertex_shader_stage = vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::VERTEX)
             .module(vertex_shader_module)
             .name(&main_function_name);
-        let fragment_shader_stage = vk::PipelineShaderStageCreateInfo::builder()
+        let fragment_shader_stage = vk::PipelineShaderStageCreateInfo::default()
             .stage(vk::ShaderStageFlags::FRAGMENT)
             .module(fragment_shader_module)
             .name(&main_function_name);
-        let shader_stages = vec![vertex_shader_stage.build(), fragment_shader_stage.build()];
+        let shader_stages = vec![vertex_shader_stage, fragment_shader_stage];
         let vertex_attrib_descs = [
             vk::VertexInputAttributeDescription {
                 binding: 0,
@@ -128,10 +128,10 @@ impl PipelineComp {
                 input_rate: vk::VertexInputRate::INSTANCE,
             },
         ];
-        let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::builder()
+        let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_attribute_descriptions(&vertex_attrib_descs)
             .vertex_binding_descriptions(&vertex_binding_descs);
-        let input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
+        let input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::default()
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
         let viewports = [vk::Viewport {
             x: 0.,
@@ -146,23 +146,23 @@ impl PipelineComp {
             extent: swapchain.extent,
         }];
 
-        let viewport_info = vk::PipelineViewportStateCreateInfo::builder()
+        let viewport_info = vk::PipelineViewportStateCreateInfo::default()
             .viewports(&viewports)
             .scissors(&scissors);
 
-        let rasterizer_info = vk::PipelineRasterizationStateCreateInfo::builder()
+        let rasterizer_info = vk::PipelineRasterizationStateCreateInfo::default()
             .line_width(1.0)
             .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
             .cull_mode(vk::CullModeFlags::BACK)
             .polygon_mode(vk::PolygonMode::FILL);
 
-        let multisampler_info = vk::PipelineMultisampleStateCreateInfo::builder()
+        let multisampler_info = vk::PipelineMultisampleStateCreateInfo::default()
             .rasterization_samples(vk::SampleCountFlags::TYPE_1);
-        let depth_stencil_info = vk::PipelineDepthStencilStateCreateInfo::builder()
+        let depth_stencil_info = vk::PipelineDepthStencilStateCreateInfo::default()
             .depth_test_enable(true)
             .depth_write_enable(true)
             .depth_compare_op(vk::CompareOp::LESS_OR_EQUAL);
-        let colourblend_attachments = [vk::PipelineColorBlendAttachmentState::builder()
+        let colourblend_attachments = [vk::PipelineColorBlendAttachmentState::default()
             .blend_enable(true)
             .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
             .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
@@ -175,28 +175,26 @@ impl PipelineComp {
                     | vk::ColorComponentFlags::G
                     | vk::ColorComponentFlags::B
                     | vk::ColorComponentFlags::A,
-            )
-            .build()];
+            )];
         let colourblend_info =
-            vk::PipelineColorBlendStateCreateInfo::builder().attachments(&colourblend_attachments);
-        let descriptorset_layout_binding_descs = [vk::DescriptorSetLayoutBinding::builder()
+            vk::PipelineColorBlendStateCreateInfo::default().attachments(&colourblend_attachments);
+        let descriptorset_layout_binding_descs = [vk::DescriptorSetLayoutBinding::default()
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
             .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::VERTEX)
-            .build()];
-        let descriptorset_layout_info = vk::DescriptorSetLayoutCreateInfo::builder()
+            .stage_flags(vk::ShaderStageFlags::VERTEX)];
+        let descriptorset_layout_info = vk::DescriptorSetLayoutCreateInfo::default()
             .bindings(&descriptorset_layout_binding_descs);
         let descriptorsetlayout = unsafe {
             logical_device.create_descriptor_set_layout(&descriptorset_layout_info, None)
         }?;
         let desc_layouts = vec![descriptorsetlayout];
         let pipelinelayout_info =
-            vk::PipelineLayoutCreateInfo::builder().set_layouts(&desc_layouts);
+            vk::PipelineLayoutCreateInfo::default().set_layouts(&desc_layouts);
         let pipeline_layout =
             unsafe { logical_device.create_pipeline_layout(&pipelinelayout_info, None) }?;
 
-        let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
+        let pipeline_info = vk::GraphicsPipelineCreateInfo::default()
             .stages(&shader_stages)
             .vertex_input_state(&vertex_input_info)
             .input_assembly_state(&input_assembly_info)
@@ -211,11 +209,7 @@ impl PipelineComp {
 
         let graphics_pipeline = unsafe {
             logical_device
-                .create_graphics_pipelines(
-                    vk::PipelineCache::null(),
-                    &[pipeline_info.build()],
-                    None,
-                )
+                .create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
                 .expect("A problem with the pipeline creation")
         }[0];
         unsafe {

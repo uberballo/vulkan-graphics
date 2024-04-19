@@ -1,28 +1,34 @@
-use std::os::raw::c_void;
+use std::error::Error;
 
 use ash::vk;
-use winit::{platform::windows::WindowExtWindows};
+use winit::{
+    raw_window_handle::{HasDisplayHandle, HasWindowHandle},
+    window::{Window, WindowBuilder},
+};
 
 pub struct Surface {
-    win_surface_loader: ash::extensions::khr::Win32Surface,
     pub surface: vk::SurfaceKHR,
-    surface_loader: ash::extensions::khr::Surface,
+    surface_loader: ash::khr::surface::Instance,
 }
 
 impl Surface {
     pub fn init(
-        window: &winit::window::Window,
+        window: &Window,
         entry: &ash::Entry,
         instance: &ash::Instance,
-    ) -> Result<Surface, vk::Result> {
-        let hwnd = window.hwnd();
-        let create_info = vk::Win32SurfaceCreateInfoKHR::builder().hwnd(hwnd as *const c_void);
-
-        let win_surface_loader = ash::extensions::khr::Win32Surface::new(entry, instance);
-        let surface = unsafe { win_surface_loader.create_win32_surface(&create_info, None) }?;
-        let surface_loader = ash::extensions::khr::Surface::new(entry, instance);
+    ) -> Result<Surface, Box<dyn Error>> {
+        let surface_loader = ash::khr::surface::Instance::new(&entry, &instance);
+        let surface = unsafe {
+            ash_window::create_surface(
+                &entry,
+                &instance,
+                window.display_handle()?.as_raw(),
+                window.window_handle()?.as_raw(),
+                None,
+            )
+            .unwrap()
+        };
         Ok(Surface {
-            win_surface_loader,
             surface,
             surface_loader,
         })
