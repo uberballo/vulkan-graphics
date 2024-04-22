@@ -19,7 +19,7 @@ pub struct GpuBuffer {
 
 impl GpuBuffer {
     pub fn new(
-        instance: &Instance,
+        instance: &ash::Instance,
         bytes: u64,
         buffer_usage: vk::BufferUsageFlags,
         logical_device: ash::Device,
@@ -28,7 +28,7 @@ impl GpuBuffer {
         allocation_location: gpu_allocator::MemoryLocation,
         linear: bool,
     ) -> Result<GpuBuffer, vk::Result> {
-        let mut size_in_bytes = bytes;
+        let size_in_bytes = bytes;
         let buffer_info = vk::BufferCreateInfo::default()
             .size(size_in_bytes)
             .usage(buffer_usage)
@@ -44,15 +44,16 @@ impl GpuBuffer {
             get_memory_type_index(
                 instance,
                 physical_device,
-                //vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-                vk::MemoryPropertyFlags::DEVICE_LOCAL | vk::MemoryPropertyFlags::HOST_VISIBLE,
+                vk::MemoryPropertyFlags::HOST_COHERENT
+                    | vk::MemoryPropertyFlags::HOST_VISIBLE
+                    | vk::MemoryPropertyFlags::DEVICE_LOCAL,
                 requirements,
             )
             .expect("Failed to find suitable memory type index")
         };
 
         let memory_info = vk::MemoryAllocateInfo::default()
-            .allocation_size(size_in_bytes)
+            .allocation_size(requirements.size)
             .memory_type_index(memory_type);
 
         let allocation = unsafe { logical_device.allocate_memory(&memory_info, None) }?;
@@ -96,15 +97,11 @@ impl GpuBuffer {
                 vk::MemoryMapFlags::empty(),
             )
         }?;
-        println!("Writing to memory: ");
-        println!("{:?}", data.as_ptr());
-        println!("{:?}", memory);
         //unsafe { memory.copy_from(data.as_ptr() as *const c_void, bytes_to_write as usize) };
         //unsafe { memcpy(data.as_ptr(), memory.cast(), bytes_to_write as usize) };
         unsafe {
             memory.copy_from_nonoverlapping(data.as_ptr() as *const c_void, bytes_to_write as usize)
         };
-        println!("Wrote to memory: ");
 
         unsafe { self.logical_device.unmap_memory(self.allocation) };
         Ok(())

@@ -192,7 +192,6 @@ impl<V, I> Model<V, I> {
             buffer.write_to_memory(&self.vertex_data)?;
             Ok(())
         } else {
-            println!("Else");
             let bytes = (self.vertex_data.len() * std::mem::size_of::<V>()) as u64;
             let mut buffer = GpuBuffer::new(
                 instance,
@@ -204,7 +203,6 @@ impl<V, I> Model<V, I> {
                 gpu_allocator::MemoryLocation::CpuToGpu,
                 false,
             )?;
-            println!("Write");
             buffer.write_to_memory(&self.vertex_data)?;
             self.vertex_buffer = Some(buffer);
             Ok(())
@@ -304,8 +302,8 @@ impl<V, I> Model<V, I> {
     }
 }
 
-impl Model<[f32; 3], InstanceData> {
-    pub fn cube(logical_device: &ash::Device) -> Model<[f32; 3], InstanceData> {
+impl Model<VertexData, InstanceData> {
+    pub fn cube(logical_device: &ash::Device) -> Model<VertexData, InstanceData> {
         let lbf = [-1.0, 1.0, -1.0]; //lbf: left-bottom-front
         let lbb = [-1.0, 1.0, 1.0];
         let ltf = [-1.0, -1.0, -1.0];
@@ -315,7 +313,40 @@ impl Model<[f32; 3], InstanceData> {
         let rtf = [1.0, -1.0, -1.0];
         let rtb = [1.0, -1.0, 1.0];
         Model {
-            vertex_data: vec![lbf, lbb, ltf, ltb, rbf, rbb, rtf, rtb],
+            vertex_data: vec![
+                VertexData {
+                    position: lbf,
+                    normal: normalize(lbf),
+                },
+                VertexData {
+                    position: lbb,
+                    normal: normalize(lbb),
+                },
+                VertexData {
+                    position: ltf,
+                    normal: normalize(ltf),
+                },
+                VertexData {
+                    position: ltb,
+                    normal: normalize(ltb),
+                },
+                VertexData {
+                    position: rbf,
+                    normal: normalize(rbf),
+                },
+                VertexData {
+                    position: rbb,
+                    normal: normalize(rbb),
+                },
+                VertexData {
+                    position: rtf,
+                    normal: normalize(rtf),
+                },
+                VertexData {
+                    position: rtb,
+                    normal: normalize(rtb),
+                },
+            ],
             index_data: vec![
                 0, 1, 5, 0, 5, 4, //bottom
                 2, 7, 3, 2, 6, 7, //top

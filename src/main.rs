@@ -10,6 +10,10 @@ use ash::vk::PhysicalDevice;
 use ash::vk::RenderPass;
 use ash::Entry;
 use ash::Instance;
+use cgmath::point3;
+use cgmath::vec2;
+use cgmath::vec3;
+use cgmath::Deg;
 use gpuBuffer::GpuBuffer;
 use gpu_allocator::vulkan::*;
 use model::InstanceData;
@@ -433,31 +437,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let window = winit::window::Window::new(&eventloop)?;
     let mut kompura = Kompura::init(window)?;
     let mut camera = camera::Camera::default();
-
-    println!("");
-    println!("");
-    println!("Here!");
-    println!("");
-    println!("");
     let mut sphere = Model::sphere(3, &kompura.device);
     sphere.insert_visibly(InstanceData::from_matrix_and_colour(
-        na::Matrix4::new_scaling(0.5),
-        [0.5, 0.0, 0.0],
+        na::Matrix4::new_scaling(1.0),
+        [0.5, 0.5, 0.5],
     ));
-    println!("");
-    println!("");
-    println!("Here!");
-    println!("");
-    println!("");
     sphere.update_vertex_buffer(&mut kompura.instance, kompura.physical_device)?;
     sphere.update_index_buffer(&mut kompura.instance, kompura.physical_device)?;
     sphere.update_instance_buffer(&mut kompura.instance, kompura.physical_device)?;
     kompura.models = vec![sphere];
-    println!("");
-    println!("");
-    println!("Here!");
-    println!("");
-    println!("");
+
     use winit::event::{Event, WindowEvent};
     let _ =
         eventloop.run(|event, elwt| match event {
@@ -526,7 +515,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 [kompura.swapchain.current_image]])
                             .expect("resetting fences");
                     }
-                    camera.update_buffer(&mut kompura.uniform_buffer);
+                    //camera.update_buffer(&mut kompura.uniform_buffer);
                     for m in &mut kompura.models {
                         m.update_instance_buffer(&kompura.instance, kompura.physical_device);
                     }

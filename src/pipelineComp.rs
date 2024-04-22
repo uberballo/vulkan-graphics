@@ -128,6 +128,7 @@ impl PipelineComp {
                 input_rate: vk::VertexInputRate::INSTANCE,
             },
         ];
+
         let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_attribute_descriptions(&vertex_attrib_descs)
             .vertex_binding_descriptions(&vertex_binding_descs);
