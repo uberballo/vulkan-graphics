@@ -1,16 +1,15 @@
 use ash::{
-    ext::metal_objects::Device,
     vk::{self, DeviceMemory},
     Instance,
 };
-use std::error::Error;
-use std::ptr::copy_nonoverlapping as memcpy;
+use std::{ffi::c_void, mem, ptr::copy_nonoverlapping as memcpy};
 
 pub struct GpuBuffer {
-    pub buffer: vk::Buffer,
-    pub allocation: DeviceMemory,
+    instance: &'static Instance,
     logical_device: ash::Device,
     physical_device: vk::PhysicalDevice,
+    pub buffer: vk::Buffer,
+    pub allocation: DeviceMemory,
     size_in_bytes: u64,
     buffer_usage: vk::BufferUsageFlags,
     allocation_name: String,
@@ -21,7 +20,7 @@ pub struct GpuBuffer {
 impl GpuBuffer {
     pub fn new(
         instance: &Instance,
-        size_in_bytes: u64,
+        bytes: u64,
         buffer_usage: vk::BufferUsageFlags,
         logical_device: ash::Device,
         physical_device: vk::PhysicalDevice,
@@ -29,6 +28,7 @@ impl GpuBuffer {
         allocation_location: gpu_allocator::MemoryLocation,
         linear: bool,
     ) -> Result<GpuBuffer, vk::Result> {
+        let mut size_in_bytes = bytes;
         let buffer_info = vk::BufferCreateInfo::default()
             .size(size_in_bytes)
             .usage(buffer_usage)
@@ -44,11 +44,13 @@ impl GpuBuffer {
             get_memory_type_index(
                 instance,
                 physical_device,
-                vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+                //vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+                vk::MemoryPropertyFlags::DEVICE_LOCAL | vk::MemoryPropertyFlags::HOST_VISIBLE,
                 requirements,
             )
-            .unwrap()
+            .expect("Failed to find suitable memory type index")
         };
+
         let memory_info = vk::MemoryAllocateInfo::default()
             .allocation_size(size_in_bytes)
             .memory_type_index(memory_type);
@@ -58,67 +60,24 @@ impl GpuBuffer {
         unsafe { logical_device.bind_buffer_memory(buffer, allocation, 0) }?;
 
         Ok(GpuBuffer {
-            buffer,
-            allocation,
+            instance: unsafe { std::mem::transmute(instance) },
             logical_device,
             physical_device,
+            buffer,
+            allocation,
             size_in_bytes,
             buffer_usage,
             allocation_name: allocation_name.to_string(),
             allocation_location,
             linear,
         })
-
-        //let buffer_create_info = vk::BufferCreateInfo::default()
-        //    .size(size_in_bytes)
-        //    .usage(buffer_usage);
-
-        //let buffer = unsafe { logical_device.create_buffer(&buffer_create_info, None)? };
-        //let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
-
-        //let allocation_info = gpu_allocator::vulkan::AllocationCreateDesc {
-        //    name: &allocation_name,
-        //    requirements,
-        //    location: allocation_location,
-        //    linear,
-        //    allocation_scheme,
-        //};
-
-        //let allocation = allocator.allocate(&allocation_info).unwrap();
-        //unsafe {
-        //    logical_device.bind_buffer_memory(buffer, allocation.memory(), allocation.offset())?
-        //}
-        //Ok(GpuBuffer {
-        //    buffer,
-        //    allocation,
-        //    logical_device,
-        //    size_in_bytes,
-        //    buffer_usage,
-        //    allocation_name: allocation_name.to_string(),
-        //    allocation_location,
-        //    linear,
-        //    allocation_scheme,
-        //})
     }
 
-    // pub fn new_write_to_memory() {
-    //     let memory = device.map_memory(
-    //         data.vertex_buffer_memory,
-    //         0,
-    //         buffer_info.size,
-    //         vk::MemoryMapFlags::empty(),
-    //     )?;
-    // }
-
-    pub fn write_to_memory<T: Sized>(
-        &mut self,
-        instance: &Instance,
-        data: &[T],
-    ) -> Result<(), vk::Result> {
+    pub fn write_to_memory<T: Sized>(&mut self, data: &[T]) -> Result<(), vk::Result> {
         let bytes_to_write = std::mem::size_of_val(data) as u64;
         if bytes_to_write > self.size_in_bytes {
             let new_buffer = GpuBuffer::new(
-                instance,
+                self.instance,
                 bytes_to_write,
                 self.buffer_usage,
                 self.logical_device.clone(),
@@ -137,47 +96,22 @@ impl GpuBuffer {
                 vk::MemoryMapFlags::empty(),
             )
         }?;
-
-        unsafe { memcpy(data.as_ptr(), memory.cast(), bytes_to_write as usize) };
+        println!("Writing to memory: ");
+        println!("{:?}", data.as_ptr());
+        println!("{:?}", memory);
+        //unsafe { memory.copy_from(data.as_ptr() as *const c_void, bytes_to_write as usize) };
+        //unsafe { memcpy(data.as_ptr(), memory.cast(), bytes_to_write as usize) };
+        unsafe {
+            memory.copy_from_nonoverlapping(data.as_ptr() as *const c_void, bytes_to_write as usize)
+        };
+        println!("Wrote to memory: ");
 
         unsafe { self.logical_device.unmap_memory(self.allocation) };
-        //let data_ptr = self.allocation.mapped_ptr().unwrap().as_ptr() as *mut T;
-        //unsafe { data_ptr.copy_from_nonoverlapping(data.as_ptr(), data.len()) };
         Ok(())
     }
-
-    //pub fn write_to_memory<T: Sized>(
-    //    &mut self,
-    //    allocator: &mut Allocator,
-    //    data: &[T],
-    //) -> Result<(), vk::Result> {
-    //    let bytes_to_write = std::mem::size_of_val(data) as u64;
-    //    if bytes_to_write > self.size_in_bytes {
-    //        allocator
-    //            .free(std::mem::take(&mut self.allocation))
-    //            .expect("Error freeing model buffer");
-    //        unsafe { self.logical_device.destroy_buffer(self.buffer, None) };
-
-    //        let new_buffer = GpuBuffer::new(
-    //            allocator,
-    //            bytes_to_write,
-    //            self.buffer_usage,
-    //            self.logical_device.clone(),
-    //            self.allocation_name.clone(),
-    //            self.allocation_location,
-    //            self.linear,
-    //            self.allocation_scheme,
-    //        )?;
-    //        *self = new_buffer;
-    //    };
-
-    //    let data_ptr = self.allocation.mapped_ptr().unwrap().as_ptr() as *mut T;
-    //    unsafe { data_ptr.copy_from_nonoverlapping(data.as_ptr(), data.len()) };
-    //    Ok(())
-    //}
 }
 
-unsafe fn get_memory_type_index(
+pub unsafe fn get_memory_type_index(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     properties: vk::MemoryPropertyFlags,
@@ -189,4 +123,19 @@ unsafe fn get_memory_type_index(
         let memory_type = memory.memory_types[*i as usize];
         suitable && memory_type.property_flags.contains(properties)
     })
+}
+
+pub fn find_memorytype_index(
+    memory_req: &vk::MemoryRequirements,
+    memory_prop: &vk::PhysicalDeviceMemoryProperties,
+    flags: vk::MemoryPropertyFlags,
+) -> Option<u32> {
+    memory_prop.memory_types[..memory_prop.memory_type_count as _]
+        .iter()
+        .enumerate()
+        .find(|(index, memory_type)| {
+            (1 << index) & memory_req.memory_type_bits != 0
+                && memory_type.property_flags & flags == flags
+        })
+        .map(|(index, _memory_type)| index as _)
 }

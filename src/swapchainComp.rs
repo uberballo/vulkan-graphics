@@ -1,7 +1,10 @@
 use ash::vk;
 use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, AllocationScheme, Allocator};
 
-use crate::{queueFamilies::QueueFamilies, queues::Queues, surface::Surface};
+use crate::{
+    gpuBuffer::get_memory_type_index, queueFamilies::QueueFamilies, queues::Queues,
+    surface::Surface,
+};
 
 pub struct SwapchainComp {
     pub swapchain_loader: ash::khr::swapchain::Device,
@@ -17,7 +20,7 @@ pub struct SwapchainComp {
     pub current_image: usize,
     pub may_begin_drawing: Vec<vk::Fence>,
     depth_image: vk::Image,
-    depth_image_allocation: Option<Allocation>,
+    depth_image_allocation: vk::DeviceMemory,
     depth_imageview: vk::ImageView,
 }
 
@@ -29,7 +32,6 @@ impl SwapchainComp {
         surfaces: &Surface,
         queue_families: &QueueFamilies,
         _queues: &Queues,
-        allocator: &mut Allocator,
     ) -> Result<SwapchainComp, vk::Result> {
         let surface_capabilities = surfaces.get_capabilities(physical_device)?;
         let extent = surface_capabilities.current_extent;
@@ -114,23 +116,13 @@ impl SwapchainComp {
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .queue_family_indices(&queue_families_indices);
 
-        let depth_image = unsafe { logical_device.create_image(&depth_image_info, None)? };
-        let depth_image_requirements =
-            unsafe { logical_device.get_image_memory_requirements(depth_image) };
-        let depth_image_allocation = allocator
-            .allocate(&AllocationCreateDesc {
-                name: "Depth image",
-                requirements: depth_image_requirements,
-                location: gpu_allocator::MemoryLocation::GpuOnly,
-                linear: true,
-                allocation_scheme: AllocationScheme::GpuAllocatorManaged,
-            })
-            .unwrap();
-        unsafe {
-            logical_device.bind_image_memory(
-                depth_image,
-                depth_image_allocation.memory(),
-                depth_image_allocation.offset(),
+        let (depth_image, depth_image_allocation) = unsafe {
+            Self::create_image(
+                instance,
+                logical_device,
+                physical_device,
+                depth_image_info,
+                vk::MemoryPropertyFlags::DEVICE_LOCAL,
             )?
         };
         let subresource_range = vk::ImageSubresourceRange::default()
@@ -161,9 +153,35 @@ impl SwapchainComp {
             rendering_finished,
             may_begin_drawing,
             depth_image,
-            depth_image_allocation: Some(depth_image_allocation),
+            depth_image_allocation: depth_image_allocation,
             depth_imageview,
         })
+    }
+
+    unsafe fn create_image(
+        instance: &ash::Instance,
+        device: &ash::Device,
+        physical_device: vk::PhysicalDevice,
+        image_create_info: vk::ImageCreateInfo,
+        properties: vk::MemoryPropertyFlags,
+    ) -> Result<(vk::Image, vk::DeviceMemory), vk::Result> {
+        let image = device.create_image(&image_create_info, None)?;
+
+        // Memory
+
+        let requirements = device.get_image_memory_requirements(image);
+
+        let info = vk::MemoryAllocateInfo::default()
+            .allocation_size(requirements.size)
+            .memory_type_index(
+                get_memory_type_index(instance, physical_device, properties, requirements).unwrap(),
+            );
+
+        let image_memory = device.allocate_memory(&info, None)?;
+
+        device.bind_image_memory(image, image_memory, 0)?;
+
+        Ok((image, image_memory))
     }
 
     pub fn create_framebuffers(
@@ -185,8 +203,9 @@ impl SwapchainComp {
         Ok(())
     }
 
-    pub unsafe fn cleanup(&mut self, logical_device: &ash::Device, _allocator: &mut Allocator) {
+    pub unsafe fn cleanup(&mut self, logical_device: &ash::Device) {
         logical_device.destroy_image(self.depth_image, None);
+        logical_device.free_memory(self.depth_image_allocation, None);
         logical_device.destroy_image_view(self.depth_imageview, None);
         for fence in &self.may_begin_drawing {
             logical_device.destroy_fence(*fence, None);

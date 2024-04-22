@@ -1,5 +1,4 @@
-use ash::vk;
-use gpu_allocator::vulkan::{AllocationScheme, Allocator};
+use ash::vk::{self, PhysicalDevice};
 
 use crate::GpuBuffer;
 
@@ -184,69 +183,82 @@ impl<V, I> Model<V, I> {
         }
     }
 
-    pub fn update_vertex_buffer(&mut self, allocator: &mut Allocator) -> Result<(), vk::Result> {
+    pub fn update_vertex_buffer(
+        &mut self,
+        instance: &ash::Instance,
+        physical_device: PhysicalDevice,
+    ) -> Result<(), vk::Result> {
         if let Some(buffer) = &mut self.vertex_buffer {
-            buffer.write_to_memory(allocator, &self.vertex_data)?;
+            buffer.write_to_memory(&self.vertex_data)?;
             Ok(())
         } else {
+            println!("Else");
             let bytes = (self.vertex_data.len() * std::mem::size_of::<V>()) as u64;
             let mut buffer = GpuBuffer::new(
-                allocator,
+                instance,
                 bytes,
                 vk::BufferUsageFlags::VERTEX_BUFFER,
                 self.logical_device.clone(),
+                physical_device,
                 "VertexBuffer".to_string(),
                 gpu_allocator::MemoryLocation::CpuToGpu,
                 false,
-                AllocationScheme::GpuAllocatorManaged,
             )?;
-
-            buffer.write_to_memory(allocator, &self.vertex_data)?;
+            println!("Write");
+            buffer.write_to_memory(&self.vertex_data)?;
             self.vertex_buffer = Some(buffer);
             Ok(())
         }
     }
 
-    pub fn update_index_buffer(&mut self, allocator: &mut Allocator) -> Result<(), vk::Result> {
+    pub fn update_index_buffer(
+        &mut self,
+        instance: &ash::Instance,
+        physical_device: PhysicalDevice,
+    ) -> Result<(), vk::Result> {
         if let Some(buffer) = &mut self.index_buffer {
-            buffer.write_to_memory(allocator, &self.index_data)?;
+            buffer.write_to_memory(&self.vertex_data)?;
             Ok(())
         } else {
             let bytes = (self.index_data.len() * std::mem::size_of::<u32>()) as u64;
             let mut buffer = GpuBuffer::new(
-                allocator,
+                instance,
                 bytes,
                 vk::BufferUsageFlags::INDEX_BUFFER,
                 self.logical_device.clone(),
+                physical_device,
                 "IndexBuffer".to_string(),
                 gpu_allocator::MemoryLocation::CpuToGpu,
                 false,
-                AllocationScheme::GpuAllocatorManaged,
             )?;
 
-            buffer.write_to_memory(allocator, &self.index_data)?;
+            buffer.write_to_memory(&self.vertex_data)?;
             self.index_buffer = Some(buffer);
             Ok(())
         }
     }
 
-    pub fn update_instance_buffer(&mut self, allocator: &mut Allocator) -> Result<(), vk::Result> {
+    pub fn update_instance_buffer(
+        &mut self,
+        instance: &ash::Instance,
+        physical_device: PhysicalDevice,
+    ) -> Result<(), vk::Result> {
         if let Some(buffer) = &mut self.instance_buffer {
-            buffer.write_to_memory(allocator, &self.instances[0..self.first_invisible])?;
+            buffer.write_to_memory(&self.instances[0..self.first_invisible])?;
             Ok(())
         } else {
             let bytes = (self.first_invisible * std::mem::size_of::<I>()) as u64;
             let mut buffer = GpuBuffer::new(
-                allocator,
+                instance,
                 bytes,
                 vk::BufferUsageFlags::VERTEX_BUFFER,
                 self.logical_device.clone(),
+                physical_device,
                 "VertexBuffer".to_string(),
                 gpu_allocator::MemoryLocation::CpuToGpu,
                 true,
-                AllocationScheme::GpuAllocatorManaged,
             )?;
-            buffer.write_to_memory(allocator, &self.instances[0..self.first_invisible])?;
+            buffer.write_to_memory(&self.instances[0..self.first_invisible])?;
             self.instance_buffer = Some(buffer);
             Ok(())
         }

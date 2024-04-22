@@ -3,7 +3,7 @@ use std::error::Error;
 use ash::vk;
 use winit::{
     raw_window_handle::{HasDisplayHandle, HasWindowHandle},
-    window::{Window, WindowBuilder},
+    window::Window,
 };
 
 pub struct Surface {
