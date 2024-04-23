@@ -1,3 +1,5 @@
+use std::{fmt, mem};
+
 use ash::vk::{self, PhysicalDevice};
 
 use crate::GpuBuffer;
@@ -14,6 +16,19 @@ pub struct Model<V, I> {
     pub index_buffer: Option<GpuBuffer>,
     pub instance_buffer: Option<GpuBuffer>,
     logical_device: ash::Device,
+}
+impl<V: fmt::Debug, I: fmt::Debug> fmt::Debug for Model<V, I> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Model")
+            .field("vertex_data", &self.vertex_data)
+            .field("index_data", &self.index_data)
+            .field("handle_to_index", &self.handle_to_index)
+            .field("handles", &self.handles)
+            .field("instances", &self.instances)
+            .field("first_invisible", &self.first_invisible)
+            .field("next_handle", &self.next_handle)
+            .finish()
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -44,6 +59,7 @@ fn normalize(v: [f32; 3]) -> [f32; 3] {
     [v[0] / l, v[1] / l, v[2] / l]
 }
 
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct InstanceData {
     pub model_matrix: [[f32; 4]; 4],
@@ -192,10 +208,12 @@ impl<V, I> Model<V, I> {
             buffer.write_to_memory(&self.vertex_data)?;
             Ok(())
         } else {
+            let size = mem::size_of_val(&self.vertex_data) as u64;
             let bytes = (self.vertex_data.len() * std::mem::size_of::<V>()) as u64;
             let mut buffer = GpuBuffer::new(
                 instance,
-                bytes,
+                //bytes,
+                size,
                 vk::BufferUsageFlags::VERTEX_BUFFER,
                 self.logical_device.clone(),
                 physical_device,
@@ -215,13 +233,15 @@ impl<V, I> Model<V, I> {
         physical_device: PhysicalDevice,
     ) -> Result<(), vk::Result> {
         if let Some(buffer) = &mut self.index_buffer {
-            buffer.write_to_memory(&self.vertex_data)?;
+            buffer.write_to_memory(&self.index_data)?;
             Ok(())
         } else {
+            let size = mem::size_of_val(&self.index_data) as u64;
             let bytes = (self.index_data.len() * std::mem::size_of::<u32>()) as u64;
             let mut buffer = GpuBuffer::new(
                 instance,
-                bytes,
+                //bytes,
+                size,
                 vk::BufferUsageFlags::INDEX_BUFFER,
                 self.logical_device.clone(),
                 physical_device,
@@ -230,7 +250,7 @@ impl<V, I> Model<V, I> {
                 false,
             )?;
 
-            buffer.write_to_memory(&self.vertex_data)?;
+            buffer.write_to_memory(&self.index_data)?;
             self.index_buffer = Some(buffer);
             Ok(())
         }
@@ -245,10 +265,12 @@ impl<V, I> Model<V, I> {
             buffer.write_to_memory(&self.instances[0..self.first_invisible])?;
             Ok(())
         } else {
+            let size = mem::size_of_val(&self.instances) as u64;
             let bytes = (self.first_invisible * std::mem::size_of::<I>()) as u64;
             let mut buffer = GpuBuffer::new(
                 instance,
-                bytes,
+                //bytes,
+                size,
                 vk::BufferUsageFlags::VERTEX_BUFFER,
                 self.logical_device.clone(),
                 physical_device,

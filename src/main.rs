@@ -191,7 +191,6 @@ struct Kompura {
     pipeline: PipelineComp,
     pools: Pools,
     command_buffers: Vec<CommandBuffer>,
-    buffers: Vec<GpuBuffer>,
     models: Vec<Model<VertexData, InstanceData>>,
     uniform_buffer: GpuBuffer,
     descriptor_pool: DescriptorPool,
@@ -228,28 +227,6 @@ impl Kompura {
         swapchain.create_framebuffers(&logical_device, renderpass)?;
         let pipeline = PipelineComp::init(&logical_device, &swapchain, &renderpass)?;
         let pools = Pools::init(&logical_device, &queue_families)?;
-
-        let gpu_buffer1 = GpuBuffer::new(
-            &instance,
-            96,
-            vk::BufferUsageFlags::VERTEX_BUFFER,
-            logical_device.clone(),
-            physical_device,
-            "buffer1".to_string(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            true,
-        )?;
-
-        let gpu_buffer2 = GpuBuffer::new(
-            &instance,
-            128,
-            vk::BufferUsageFlags::VERTEX_BUFFER,
-            logical_device.clone(),
-            physical_device,
-            "buffer2".to_string(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
-            true,
-        )?;
 
         let command_buffers =
             create_command_buffers(&logical_device, &pools, swapchain.framebuffers.len())?;
@@ -320,7 +297,6 @@ impl Kompura {
             pipeline,
             pools,
             command_buffers,
-            buffers: vec![gpu_buffer1, gpu_buffer2],
             models: vec![],
             uniform_buffer,
             descriptor_pool,
@@ -397,10 +373,6 @@ impl Drop for Kompura {
             self.device
                 .free_memory(self.uniform_buffer.allocation, None);
             self.device.destroy_buffer(self.uniform_buffer.buffer, None);
-            for b in &mut self.buffers {
-                self.device.free_memory(b.allocation, None);
-                self.device.destroy_buffer(b.buffer, None);
-            }
             for m in &mut self.models {
                 if let Some(vb) = &mut m.vertex_buffer {
                     self.device.free_memory(vb.allocation, None);
@@ -439,8 +411,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut camera = camera::Camera::default();
     let mut sphere = Model::sphere(3, &kompura.device);
     sphere.insert_visibly(InstanceData::from_matrix_and_colour(
-        na::Matrix4::new_scaling(1.0),
-        [0.5, 0.5, 0.5],
+        na::Matrix4::new_scaling(0.5),
+        [0.5, 0.0, 0.0],
     ));
     sphere.update_vertex_buffer(&mut kompura.instance, kompura.physical_device)?;
     sphere.update_index_buffer(&mut kompura.instance, kompura.physical_device)?;
@@ -448,121 +420,122 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     kompura.models = vec![sphere];
 
     use winit::event::{Event, WindowEvent};
-    let _ =
-        eventloop.run(|event, elwt| match event {
-            Event::AboutToWait => kompura.window.request_redraw(),
-            Event::WindowEvent {
-                event: WindowEvent::KeyboardInput { event, .. },
+    let _ = eventloop.run(|event, elwt| match event {
+        Event::AboutToWait => kompura.window.request_redraw(),
+        Event::WindowEvent {
+            event: WindowEvent::KeyboardInput { event, .. },
+            ..
+        } => match event {
+            KeyEvent {
+                state: winit::event::ElementState::Pressed,
+                physical_key: keyboard::PhysicalKey::Code(code),
                 ..
-            } => match event {
-                KeyEvent {
-                    state: winit::event::ElementState::Pressed,
-                    physical_key: keyboard::PhysicalKey::Code(code),
-                    ..
-                } => match code {
-                    KeyCode::ArrowUp => {
-                        camera.move_forward(0.05);
-                    }
-                    KeyCode::ArrowDown => {
-                        camera.move_backward(0.05);
-                    }
-                    KeyCode::ArrowRight => {
-                        camera.turn_right(0.1);
-                    }
-                    KeyCode::ArrowLeft => {
-                        camera.turn_left(0.1);
-                    }
-                    _ => {}
-                },
+            } => match code {
+                KeyCode::ArrowUp => {
+                    camera.move_forward(0.05);
+                }
+                KeyCode::ArrowDown => {
+                    camera.move_backward(0.05);
+                }
+                KeyCode::ArrowRight => {
+                    camera.turn_right(0.1);
+                }
+                KeyCode::ArrowLeft => {
+                    camera.turn_left(0.1);
+                }
                 _ => {}
             },
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                elwt.exit();
-            }
-            Event::WindowEvent {
-                event: WindowEvent::RedrawRequested,
-                ..
-            } => {
-                if !elwt.exiting() {
-                    let (image_index, _) = unsafe {
-                        kompura
-                            .swapchain
-                            .swapchain_loader
-                            .acquire_next_image(
-                                kompura.swapchain.swapchain,
-                                std::u64::MAX,
-                                kompura.swapchain.image_available[kompura.swapchain.current_image],
-                                vk::Fence::null(),
-                            )
-                            .expect("image acquisition trouble")
-                    };
-                    unsafe {
-                        kompura
-                            .device
-                            .wait_for_fences(
-                                &[kompura.swapchain.may_begin_drawing
-                                    [kompura.swapchain.current_image]],
-                                true,
-                                std::u64::MAX,
-                            )
-                            .expect("fence-waiting");
-                        kompura
-                            .device
-                            .reset_fences(&[kompura.swapchain.may_begin_drawing
-                                [kompura.swapchain.current_image]])
-                            .expect("resetting fences");
-                    }
-                    //camera.update_buffer(&mut kompura.uniform_buffer);
-                    for m in &mut kompura.models {
-                        m.update_instance_buffer(&kompura.instance, kompura.physical_device);
-                    }
+            _ => {}
+        },
+        Event::WindowEvent {
+            event: WindowEvent::CloseRequested,
+            ..
+        } => {
+            elwt.exit();
+        }
+        Event::WindowEvent {
+            event: WindowEvent::RedrawRequested,
+            ..
+        } => {
+            if !elwt.exiting() {
+                let (image_index, _) = unsafe {
                     kompura
-                        .update_command_buffer(image_index as usize)
-                        .expect("updating the command buffer");
-                    let semaphores_available =
-                        [kompura.swapchain.image_available[kompura.swapchain.current_image]];
-                    let waiting_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-                    let semaphores_finished =
-                        [kompura.swapchain.rendering_finished[kompura.swapchain.current_image]];
-                    let commandbuffers = [kompura.command_buffers[image_index as usize]];
-                    let submit_info = [vk::SubmitInfo::default()
-                        .wait_semaphores(&semaphores_available)
-                        .wait_dst_stage_mask(&waiting_stages)
-                        .command_buffers(&commandbuffers)
-                        .signal_semaphores(&semaphores_finished)];
-                    unsafe {
-                        kompura
-                            .device
-                            .queue_submit(
-                                kompura.queues.graphics_queue,
-                                &submit_info,
+                        .swapchain
+                        .swapchain_loader
+                        .acquire_next_image(
+                            kompura.swapchain.swapchain,
+                            std::u64::MAX,
+                            kompura.swapchain.image_available[kompura.swapchain.current_image],
+                            vk::Fence::null(),
+                        )
+                        .expect("image acquisition trouble")
+                };
+                unsafe {
+                    kompura
+                        .device
+                        .wait_for_fences(
+                            &[
                                 kompura.swapchain.may_begin_drawing
                                     [kompura.swapchain.current_image],
-                            )
-                            .expect("queue submission");
-                    };
-                    let swapchains = [kompura.swapchain.swapchain];
-                    let indices = [image_index];
-                    let present_info = vk::PresentInfoKHR::default()
-                        .wait_semaphores(&semaphores_finished)
-                        .swapchains(&swapchains)
-                        .image_indices(&indices);
-                    unsafe {
-                        kompura
-                            .swapchain
-                            .swapchain_loader
-                            .queue_present(kompura.queues.graphics_queue, &present_info)
-                            .expect("queue presentation");
-                    };
-                    kompura.swapchain.current_image = (kompura.swapchain.current_image + 1)
-                        % kompura.swapchain.amount_of_images as usize;
+                            ],
+                            true,
+                            std::u64::MAX,
+                        )
+                        .expect("fence-waiting");
+                    kompura
+                        .device
+                        .reset_fences(&[
+                            kompura.swapchain.may_begin_drawing[kompura.swapchain.current_image]
+                        ])
+                        .expect("resetting fences");
                 }
+                //camera.update_buffer(&mut kompura.uniform_buffer);
+                for m in &mut kompura.models {
+                    let _ = m.update_instance_buffer(&kompura.instance, kompura.physical_device);
+                }
+                kompura
+                    .update_command_buffer(image_index as usize)
+                    .expect("updating the command buffer");
+                let semaphores_available =
+                    [kompura.swapchain.image_available[kompura.swapchain.current_image]];
+                let waiting_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+                let semaphores_finished =
+                    [kompura.swapchain.rendering_finished[kompura.swapchain.current_image]];
+                let commandbuffers = [kompura.command_buffers[image_index as usize]];
+                let submit_info = [vk::SubmitInfo::default()
+                    .wait_semaphores(&semaphores_available)
+                    .wait_dst_stage_mask(&waiting_stages)
+                    .command_buffers(&commandbuffers)
+                    .signal_semaphores(&semaphores_finished)];
+                unsafe {
+                    kompura
+                        .device
+                        .queue_submit(
+                            kompura.queues.graphics_queue,
+                            &submit_info,
+                            kompura.swapchain.may_begin_drawing[kompura.swapchain.current_image],
+                        )
+                        .expect("queue submission");
+                };
+                let swapchains = [kompura.swapchain.swapchain];
+                let indices = [image_index];
+                let present_info = vk::PresentInfoKHR::default()
+                    .wait_semaphores(&semaphores_finished)
+                    .swapchains(&swapchains)
+                    .image_indices(&indices);
+                unsafe {
+                    kompura
+                        .swapchain
+                        .swapchain_loader
+                        .queue_present(kompura.queues.graphics_queue, &present_info)
+                        .expect("queue presentation");
+                };
+                kompura.swapchain.current_image = (kompura.swapchain.current_image + 1)
+                    % kompura.swapchain.amount_of_images as usize;
             }
-            _ => {}
-        });
+        }
+        _ => {}
+    });
 
     Ok(())
 }
