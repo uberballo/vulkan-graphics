@@ -34,18 +34,26 @@ impl GpuBuffer {
         let buffer = unsafe { logical_device.create_buffer(&buffer_create_info, None)? };
         let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
 
-        let allocation_info = gpu_allocator::vulkan::AllocationCreateDesc {
-            name: &allocation_name,
-            requirements,
-            location: allocation_location,
-            linear,
-            allocation_scheme,
+        let memory_type = unsafe {
+            get_memory_type_index(
+                instance,
+                physical_device,
+                vk::MemoryPropertyFlags::HOST_COHERENT
+                    | vk::MemoryPropertyFlags::HOST_VISIBLE
+                    | vk::MemoryPropertyFlags::DEVICE_LOCAL,
+                requirements,
+            )
+            .expect("Failed to find suitable memory type index")
         };
 
-        let allocation = allocator.allocate(&allocation_info).unwrap();
-        unsafe {
-            logical_device.bind_buffer_memory(buffer, allocation.memory(), allocation.offset())?
-        }
+        let memory_info = vk::MemoryAllocateInfo::default()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type);
+
+        let allocation = unsafe { logical_device.allocate_memory(&memory_info, None) }?;
+
+        unsafe { logical_device.bind_buffer_memory(buffer, allocation, 0) }?;
+
         Ok(GpuBuffer {
             buffer,
             allocation,

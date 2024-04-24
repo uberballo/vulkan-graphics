@@ -171,6 +171,7 @@ impl SwapchainComp {
         // Memory
 
         let requirements = device.get_image_memory_requirements(image);
+        println!("{:?}", requirements);
 
         let info = vk::MemoryAllocateInfo::default()
             .allocation_size(requirements.size)

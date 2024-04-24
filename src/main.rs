@@ -191,7 +191,7 @@ struct Kompura {
     pipeline: PipelineComp,
     pools: Pools,
     command_buffers: Vec<CommandBuffer>,
-    allocator: std::mem::ManuallyDrop<Allocator>,
+    buffers: Vec<GpuBuffer>,
     models: Vec<Model<VertexData, InstanceData>>,
     uniform_buffer: GpuBuffer,
     descriptor_pool: DescriptorPool,
@@ -228,6 +228,28 @@ impl Kompura {
         swapchain.create_framebuffers(&logical_device, renderpass)?;
         let pipeline = PipelineComp::init(&logical_device, &swapchain, &renderpass)?;
         let pools = Pools::init(&logical_device, &queue_families)?;
+
+        let gpu_buffer1 = GpuBuffer::new(
+            &instance,
+            96,
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            logical_device.clone(),
+            physical_device,
+            "buffer1".to_string(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            true,
+        )?;
+
+        let gpu_buffer2 = GpuBuffer::new(
+            &instance,
+            128,
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            logical_device.clone(),
+            physical_device,
+            "buffer2".to_string(),
+            gpu_allocator::MemoryLocation::CpuToGpu,
+            true,
+        )?;
 
         let command_buffers =
             create_command_buffers(&logical_device, &pools, swapchain.framebuffers.len())?;
@@ -310,7 +332,7 @@ impl Kompura {
             pipeline,
             pools,
             command_buffers,
-            allocator: std::mem::ManuallyDrop::new(allocator),
+            buffers: vec![gpu_buffer1, gpu_buffer2],
             models: vec![],
             uniform_buffer,
             descriptor_pool,
@@ -388,6 +410,10 @@ impl Drop for Kompura {
                 .free(std::mem::take(&mut self.uniform_buffer.allocation))
                 .expect("problem with buffer destruction");
             self.device.destroy_buffer(self.uniform_buffer.buffer, None);
+            for b in &mut self.buffers {
+                self.device.free_memory(b.allocation, None);
+                self.device.destroy_buffer(b.buffer, None);
+            }
             for m in &mut self.models {
                 if let Some(vb) = &mut m.vertex_buffer {
                     self.allocator
@@ -434,8 +460,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut camera = camera::Camera::builder().build();
     let mut sphere = Model::sphere(3, &kompura.device);
     sphere.insert_visibly(InstanceData::from_matrix_and_colour(
-        na::Matrix4::new_scaling(0.5),
-        [0.5, 0.0, 0.0],
+        na::Matrix4::new_scaling(1.0),
+        [0.5, 0.5, 0.5],
     ));
     sphere.update_vertex_buffer(&mut kompura.allocator);
     sphere.update_index_buffer(&mut kompura.allocator);
@@ -510,9 +536,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 [kompura.swapchain.current_image]])
                             .expect("resetting fences");
                     }
-                    camera.update_buffer(&mut kompura.allocator, &mut kompura.uniform_buffer);
+                    //camera.update_buffer(&mut kompura.uniform_buffer);
                     for m in &mut kompura.models {
-                        let _ = m.update_instance_buffer(&mut kompura.allocator);
+                        m.update_instance_buffer(&kompura.instance, kompura.physical_device);
                     }
                     kompura
                         .update_command_buffer(image_index as usize)

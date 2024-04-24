@@ -1,5 +1,3 @@
-use std::{fmt, mem};
-
 use ash::vk::{self, PhysicalDevice};
 use gpu_allocator::vulkan::{AllocationScheme, Allocator};
 
@@ -17,19 +15,6 @@ pub struct Model<V, I> {
     pub index_buffer: Option<GpuBuffer>,
     pub instance_buffer: Option<GpuBuffer>,
     logical_device: ash::Device,
-}
-impl<V: fmt::Debug, I: fmt::Debug> fmt::Debug for Model<V, I> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Model")
-            .field("vertex_data", &self.vertex_data)
-            .field("index_data", &self.index_data)
-            .field("handle_to_index", &self.handle_to_index)
-            .field("handles", &self.handles)
-            .field("instances", &self.instances)
-            .field("first_invisible", &self.first_invisible)
-            .field("next_handle", &self.next_handle)
-            .finish()
-    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -60,7 +45,6 @@ fn normalize(v: [f32; 3]) -> [f32; 3] {
     [v[0] / l, v[1] / l, v[2] / l]
 }
 
-#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct InstanceData {
     pub model_matrix: [[f32; 4]; 4],
@@ -207,7 +191,7 @@ impl<V, I> Model<V, I> {
         } else {
             let bytes = (self.vertex_data.len() * std::mem::size_of::<V>()) as u64;
             let mut buffer = GpuBuffer::new(
-                allocator,
+                instance,
                 bytes,
                 vk::BufferUsageFlags::VERTEX_BUFFER,
                 self.logical_device.clone(),
@@ -224,12 +208,12 @@ impl<V, I> Model<V, I> {
     }
     pub fn update_index_buffer(&mut self, allocator: &mut Allocator) -> Result<(), vk::Result> {
         if let Some(buffer) = &mut self.index_buffer {
-            buffer.write_to_memory(allocator, &self.index_data)?;
+            buffer.write_to_memory(&self.vertex_data)?;
             Ok(())
         } else {
             let bytes = (self.index_data.len() * std::mem::size_of::<u32>()) as u64;
             let mut buffer = GpuBuffer::new(
-                allocator,
+                instance,
                 bytes,
                 vk::BufferUsageFlags::INDEX_BUFFER,
                 self.logical_device.clone(),
@@ -239,7 +223,7 @@ impl<V, I> Model<V, I> {
                 AllocationScheme::GpuAllocatorManaged,
             )?;
 
-            buffer.write_to_memory(allocator, &self.index_data)?;
+            buffer.write_to_memory(&self.vertex_data)?;
             self.index_buffer = Some(buffer);
             Ok(())
         }
@@ -252,7 +236,7 @@ impl<V, I> Model<V, I> {
         } else {
             let bytes = (self.first_invisible * std::mem::size_of::<I>()) as u64;
             let mut buffer = GpuBuffer::new(
-                allocator,
+                instance,
                 bytes,
                 vk::BufferUsageFlags::VERTEX_BUFFER,
                 self.logical_device.clone(),
