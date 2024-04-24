@@ -34,6 +34,7 @@ impl SwapchainComp {
         _queues: &Queues,
     ) -> Result<SwapchainComp, vk::Result> {
         let surface_capabilities = surfaces.get_capabilities(physical_device)?;
+        println!("{:?}", surface_capabilities);
         let extent = surface_capabilities.current_extent;
         let _surface_present_modes = surfaces.get_present_modes(physical_device)?;
         let surface_format = *surfaces.get_formats(physical_device)?.first().unwrap();

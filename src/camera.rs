@@ -46,9 +46,9 @@ impl Camera {
             far: 100.0,
         }
     }
-    pub fn update_buffer(&self, buffer: &mut GpuBuffer) {
+    pub fn update_buffer(&self, allocator: &mut Allocator, buffer: &mut GpuBuffer) {
         let data: [[[f32; 4]; 4]; 2] = [self.view_matrix.into(), self.projection_matrix.into()];
-        buffer.write_to_memory(&data).unwrap();
+        buffer.write_to_memory(allocator, &data).unwrap();
     }
 
     fn update_projection_matrix(&mut self) {
