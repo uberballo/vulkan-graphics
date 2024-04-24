@@ -454,7 +454,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eventloop = winit::event_loop::EventLoop::new()?;
     let window = winit::window::Window::new(&eventloop)?;
     let mut kompura = Kompura::init(window)?;
-    let mut camera = camera::Camera::default();
+    let mut camera = camera::Camera::builder().build();
 
     //let mut ico = Model::icosahedron(&kompura.device);
     //ico.refine();
