@@ -218,7 +218,6 @@ impl<V, I> Model<V, I> {
                 self.logical_device.clone(),
                 physical_device,
                 "VertexBuffer".to_string(),
-                gpu_allocator::MemoryLocation::CpuToGpu,
                 false,
             )?;
             buffer.write_to_memory(&self.vertex_data)?;
@@ -246,7 +245,6 @@ impl<V, I> Model<V, I> {
                 self.logical_device.clone(),
                 physical_device,
                 "IndexBuffer".to_string(),
-                gpu_allocator::MemoryLocation::CpuToGpu,
                 false,
             )?;
 
@@ -275,7 +273,6 @@ impl<V, I> Model<V, I> {
                 self.logical_device.clone(),
                 physical_device,
                 "VertexBuffer".to_string(),
-                gpu_allocator::MemoryLocation::CpuToGpu,
                 true,
             )?;
             buffer.write_to_memory(&self.instances[0..self.first_invisible])?;

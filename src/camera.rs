@@ -1,5 +1,4 @@
 extern crate nalgebra as na;
-use gpu_allocator::vulkan::*;
 
 use crate::GpuBuffer;
 

@@ -15,7 +15,6 @@ use cgmath::vec2;
 use cgmath::vec3;
 use cgmath::Deg;
 use gpuBuffer::GpuBuffer;
-use gpu_allocator::vulkan::*;
 use model::InstanceData;
 use model::VertexData;
 use pools::Pools;
@@ -238,7 +237,6 @@ impl Kompura {
             logical_device.clone(),
             physical_device,
             "".to_string(),
-            gpu_allocator::MemoryLocation::CpuToGpu,
             false,
         )?;
 
@@ -408,7 +406,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eventloop = winit::event_loop::EventLoop::new()?;
     let window = winit::window::Window::new(&eventloop)?;
     let mut kompura = Kompura::init(window)?;
-    let mut camera = camera::Camera::default();
+    let mut camera = camera::Camera::builder().build();
     let mut sphere = Model::sphere(3, &kompura.device);
     sphere.insert_visibly(InstanceData::from_matrix_and_colour(
         na::Matrix4::new_scaling(0.5),
@@ -489,7 +487,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ])
                         .expect("resetting fences");
                 }
-                //camera.update_buffer(&mut kompura.uniform_buffer);
+                camera.update_buffer(&mut kompura.uniform_buffer);
                 for m in &mut kompura.models {
                     let _ = m.update_instance_buffer(&kompura.instance, kompura.physical_device);
                 }

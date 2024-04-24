@@ -13,7 +13,6 @@ pub struct GpuBuffer {
     size_in_bytes: u64,
     buffer_usage: vk::BufferUsageFlags,
     allocation_name: String,
-    allocation_location: gpu_allocator::MemoryLocation,
     linear: bool,
 }
 
@@ -25,7 +24,6 @@ impl GpuBuffer {
         logical_device: ash::Device,
         physical_device: vk::PhysicalDevice,
         allocation_name: String,
-        allocation_location: gpu_allocator::MemoryLocation,
         linear: bool,
     ) -> Result<GpuBuffer, vk::Result> {
         let size_in_bytes = bytes;
@@ -66,7 +64,6 @@ impl GpuBuffer {
             size_in_bytes,
             buffer_usage,
             allocation_name: allocation_name.to_string(),
-            allocation_location,
             linear,
         })
     }
@@ -81,7 +78,6 @@ impl GpuBuffer {
                 self.logical_device.clone(),
                 self.physical_device,
                 self.allocation_name.clone(),
-                self.allocation_location,
                 self.linear,
             )?;
             *self = new_buffer;
