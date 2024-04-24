@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 ash = "0.38.0"
 ash-window = "0.13.0"
-gpu-allocator = "0.25.0"
+gpu-allocator = { git = "https://github.com/Traverse-Research/gpu-allocator.git", branch = "ash-0.38", features = ["vulkan"]}
 nalgebra = "0.32.3"
 vk-shader-macros = "0.2.9"
 winit = "0.29.15"
