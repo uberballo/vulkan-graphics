@@ -1,5 +1,5 @@
 use ash::vk;
-use gpu_allocator::vulkan::{Allocation, AllocationScheme, Allocator};
+use gpu_allocator::vulkan::{Allocation, AllocationCreateDesc, AllocationScheme, Allocator};
 
 pub struct GpuBuffer {
     pub buffer: vk::Buffer,
@@ -27,17 +27,16 @@ impl GpuBuffer {
         let buffer_create_info = vk::BufferCreateInfo::default()
             .size(size_in_bytes)
             .usage(buffer_usage);
-
         let buffer = unsafe { logical_device.create_buffer(&buffer_create_info, None)? };
         let requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
-
-        let allocation_info = gpu_allocator::vulkan::AllocationCreateDesc {
+        let allocation_info = AllocationCreateDesc {
             name: &allocation_name,
             requirements,
             location: allocation_location,
             linear,
             allocation_scheme,
         };
+        println!("Allocating buffer: {:?}", allocation_info);
 
         let allocation = allocator.allocate(&allocation_info).unwrap();
         unsafe {
