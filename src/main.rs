@@ -412,6 +412,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         na::Matrix4::new_scaling(0.5),
         [0.5, 0.0, 0.0],
     ));
+    let i = 2;
+    let j = 2;
+    sphere.insert_visibly(InstanceData {
+        model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(
+            i as f32 * 0.2 - 1.0,
+            j as f32 * 0.2 - 1.0,
+            0.5,
+        )) * na::Matrix4::new_scaling(0.4))
+        .into(),
+        inverse_model_matrix: (na::Matrix4::new_translation(&na::Vector3::new(
+            i as f32 * 0.2 - 1.0,
+            j as f32 * 0.2 - 1.0,
+            0.5,
+        )) * na::Matrix4::new_scaling(0.4))
+        .try_inverse()
+        .unwrap()
+        .into(),
+        colour: [1.0, i as f32 * 0.07, j as f32 * 0.07],
+    });
     sphere.update_vertex_buffer(&mut kompura.instance, kompura.physical_device)?;
     sphere.update_index_buffer(&mut kompura.instance, kompura.physical_device)?;
     sphere.update_instance_buffer(&mut kompura.instance, kompura.physical_device)?;
